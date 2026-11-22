@@ -377,10 +377,10 @@ Representative results on an AMD Ryzen 7 9700X (Go 1.27, `-benchmem`):
 | --- | ---: | ---: | ---: |
 | `DecodeStruct` (root + 1001 tenants) | 210 µs | 213 KB | 9 |
 | `DecodeTenantStruct` | 185 ns | 80 B | 1 |
-| `DecodeTenantMap` | 230 ns | 672 B | 4 |
-| `DecodeMap` | 259 µs | 755 KB | 4,010 |
+| `DecodeTenantMap` | 208 ns | 672 B | 4 |
+| `DecodeMap` | 237 µs | 755 KB | 4,010 |
 | `DecodeSmallStruct` | 91 ns | 32 B | 1 |
-| `LoadDocument` (full pipeline, 1001 tenants) | 1.28 ms | 2.44 MB | 14,078 |
+| `LoadDocument` (full pipeline, 1001 tenants) | 1.19 ms | 2.44 MB | 14,079 |
 
 The 1001-tenant struct decode allocates nine objects in total: the destination
 map, its bucket array, one temporary for map entries and the destination

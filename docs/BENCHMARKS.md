@@ -48,9 +48,9 @@ Median values, `go test -run '^$' -bench . -benchmem -count=10`:
 | --- | ---: | ---: | ---: |
 | `DecodeStruct` (root + 1001 tenants) | 210 µs | 213,240 B | 9 |
 | `DecodeTenantStruct` | 185 ns | 80 B | 1 |
-| `DecodeTenantMap` | 230 ns | 672 B | 4 |
-| `DecodeMap` | 259 µs | 754,721 B | 4,010 |
-| `LoadDocument` (1001 tenants) | 1.28 ms | 2,444,842 B | 14,078 |
+| `DecodeTenantMap` | 208 ns | 672 B | 4 |
+| `DecodeMap` | 237 µs | 754,721 B | 4,010 |
+| `LoadDocument` (1001 tenants) | 1.19 ms | 2,444,890 B | 14,079 |
 | `DecodeSmallStruct` | 91 ns | 32 B | 1 |
 
 Decoder package benchmarks (`internal/decode`):
@@ -88,8 +88,8 @@ present in this repository.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Root struct + 1001 tenants | 2.77 ms | 210 µs | 13.2× | 49,150 | 9 |
 | Single tenant struct | 2.82 µs | 185 ns | 15.3× | 46 | 1 |
-| Single tenant map | 252 ns | 230 ns | 1.10× | 4 | 4 |
-| Whole configuration map | 282 µs | 259 µs | 1.09× | 4,019 | 4,010 |
+| Single tenant map | 252 ns | 208 ns | 1.21× | 4 | 4 |
+| Whole configuration map | 282 µs | 237 µs | 1.19× | 4,019 | 4,010 |
 
 Struct decoding is where the rewrite pays off: a 1001-tenant decode went from
 49,150 allocations to 9. The map-returning methods are deep copies by contract,
@@ -122,7 +122,12 @@ Each optimization was validated with pprof and a before/after benchmark.
 6. **Fast placeholder resolution.** Strings without `${`/`#{` markers are not
    parsed, compiled templates are cached, and resolution mutates the document
    in place. `Compile` of a cached template is 16 ns with zero allocations.
-7. **Allocation-free hierarchy merge.** `internal/maps` implements deep merge
+7. **Bulk map cloning for copies.** `Map` and `TenantMap` clone each object with
+   `maps.Clone` and then replace only nested containers, instead of inserting
+   every key into a fresh map. Whole-document copy fell from 259 us to 237 us
+   and a tenant copy from 230 ns to 208 ns with the same allocation count; the
+   remaining cost is the mandatory map allocation per nested object.
+8. **Allocation-free hierarchy merge.** `internal/maps` implements deep merge
    and copy with direct type switches instead of reflection-based merging, and
    the file hierarchy reads and remaps each directory document once.
 

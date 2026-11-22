@@ -115,3 +115,37 @@ func TestExtractMap(t *testing.T) {
 		t.Fatal("ExtractMap did not remove the value")
 	}
 }
+
+func TestDeepCopyMapNilAndEmpty(t *testing.T) {
+	if clone := DeepCopyMap(nil); clone != nil {
+		t.Fatalf("DeepCopyMap(nil) = %#v, want nil", clone)
+	}
+	original := map[string]any{}
+	clone := DeepCopyMap(original)
+	if clone == nil || len(clone) != 0 {
+		t.Fatalf("DeepCopyMap(empty) = %#v, want an empty non-nil map", clone)
+	}
+	clone["key"] = "value"
+	if len(original) != 0 {
+		t.Fatal("DeepCopyMap(empty) returned shared memory")
+	}
+}
+
+func TestDeepCopyNestedLists(t *testing.T) {
+	original := map[string]any{
+		"servers": []any{
+			map[string]any{"host": "a"},
+			[]any{"b", map[string]any{"host": "c"}},
+		},
+	}
+	clone := DeepCopyMap(original)
+	servers := clone["servers"].([]any)
+	servers[0].(map[string]any)["host"] = "mutated"
+	servers[1].([]any)[1].(map[string]any)["host"] = "mutated"
+	if original["servers"].([]any)[0].(map[string]any)["host"] != "a" {
+		t.Fatal("nested object is shared with the source")
+	}
+	if original["servers"].([]any)[1].([]any)[1].(map[string]any)["host"] != "c" {
+		t.Fatal("nested list object is shared with the source")
+	}
+}

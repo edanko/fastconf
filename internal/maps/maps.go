@@ -7,7 +7,11 @@
 // type switch so it stays cheap on large documents.
 package maps
 
-import "strings"
+import (
+	stdmaps "maps"
+	"slices"
+	"strings"
+)
 
 // Get returns the value located at path.
 func Get(values map[string]any, path []string) (any, bool) {
@@ -186,28 +190,50 @@ func Merge(dst, src map[string]any) {
 func DeepCopy(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
-		clone := make(map[string]any, len(typed))
-		for key, child := range typed {
-			clone[key] = DeepCopy(child)
-		}
-		return clone
+		return DeepCopyMap(typed)
 	case []any:
-		clone := make([]any, len(typed))
-		for i, child := range typed {
-			clone[i] = DeepCopy(child)
-		}
-		return clone
+		return deepCopyList(typed)
 	default:
 		return value
 	}
 }
 
 // DeepCopyMap returns a deep copy of a configuration document.
+//
+// The map itself is copied with maps.Clone, which uses the runtime's bulk map
+// copy instead of inserting every key again; only nested maps and lists are
+// replaced with their own copies. Cloning first also allocates the same map
+// shape as the source, so no growth rehashing happens while replacing values.
 func DeepCopyMap(values map[string]any) map[string]any {
 	if values == nil {
 		return nil
 	}
-	return DeepCopy(values).(map[string]any)
+	clone := stdmaps.Clone(values)
+	for key, value := range clone {
+		switch typed := value.(type) {
+		case map[string]any:
+			clone[key] = DeepCopyMap(typed)
+		case []any:
+			clone[key] = deepCopyList(typed)
+		}
+	}
+	return clone
+}
+
+func deepCopyList(values []any) []any {
+	if values == nil {
+		return nil
+	}
+	clone := slices.Clone(values)
+	for index, value := range clone {
+		switch typed := value.(type) {
+		case map[string]any:
+			clone[index] = DeepCopyMap(typed)
+		case []any:
+			clone[index] = deepCopyList(typed)
+		}
+	}
+	return clone
 }
 
 func getFold(values map[string]any, key string) (any, bool) {
