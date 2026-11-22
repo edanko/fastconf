@@ -1,5 +1,7 @@
 # fastconf
 
+[![CI](https://github.com/edanko/fastconf/actions/workflows/ci.yml/badge.svg)](https://github.com/edanko/fastconf/actions/workflows/ci.yml)
+
 Layered, hierarchical configuration for Go microservices with a fast decode
 path.
 
