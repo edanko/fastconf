@@ -314,3 +314,99 @@ func mustTenant(t *testing.T, loader *fastconf.Loader, code string) map[string]a
 	}
 	return values
 }
+
+func TestSetOverridesAppliesBatch(t *testing.T) {
+	t.Parallel()
+	loader := newOverrideLoader(t, overrideDocument())
+
+	err := loader.SetOverrides(map[string]any{
+		"features.alpha": true,
+		"database.port":  6000,
+		"Database.Host":  "batch-db",
+	})
+	if err != nil {
+		t.Fatalf("SetOverrides: %v", err)
+	}
+	root := rootMap(t, loader)
+	if features, ok := root["features"].(map[string]any); !ok || features["alpha"] != true {
+		t.Fatalf("features = %#v", root["features"])
+	}
+	database, ok := root["database"].(map[string]any)
+	if !ok || database["port"] != 6000 || database["host"] != "batch-db" {
+		t.Fatalf("database = %#v", root["database"])
+	}
+	acme := mustTenant(t, loader, "acme")
+	acmeDatabase, ok := acme["database"].(map[string]any)
+	if !ok || acmeDatabase["port"] != 6000 {
+		t.Fatalf("tenant database = %#v", acme["database"])
+	}
+}
+
+func TestSetOverridesIsAtomic(t *testing.T) {
+	t.Parallel()
+	loader := newOverrideLoader(t, overrideDocument())
+
+	if err := loader.SetOverrides(map[string]any{"good.value": 1, "bad..path": 2}); err == nil {
+		t.Fatal("invalid batch was accepted")
+	}
+	root := rootMap(t, loader)
+	if _, exists := root["good"]; exists {
+		t.Fatalf("partially applied batch: %#v", root["good"])
+	}
+}
+
+func TestSetTenantOverridesBatch(t *testing.T) {
+	t.Parallel()
+	loader := newOverrideLoader(t, overrideDocument())
+
+	err := loader.SetTenantOverrides("acme", map[string]any{"domain": "acme-batch", "database.host": "batch-host"})
+	if err != nil {
+		t.Fatalf("SetTenantOverrides: %v", err)
+	}
+	acme := mustTenant(t, loader, "acme")
+	if acme["domain"] != "acme-batch" {
+		t.Fatalf("acme domain = %#v", acme["domain"])
+	}
+	if database, ok := acme["database"].(map[string]any); !ok || database["host"] != "batch-host" {
+		t.Fatalf("acme database = %#v", acme["database"])
+	}
+	if domain := mustTenant(t, loader, "globex")["domain"]; domain != "globex.example" {
+		t.Fatalf("globex was changed: %#v", domain)
+	}
+}
+
+func TestDeleteOverridesBatch(t *testing.T) {
+	t.Parallel()
+	loader := newOverrideLoader(t, overrideDocument())
+	if err := loader.SetOverrides(map[string]any{"a": 1, "b": 2, "c": 3}); err != nil {
+		t.Fatalf("SetOverrides: %v", err)
+	}
+	removed, err := loader.DeleteOverrides([]string{"a", "missing", "B", "a"})
+	if err != nil {
+		t.Fatalf("DeleteOverrides: %v", err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed = %d, want 2", removed)
+	}
+	root := rootMap(t, loader)
+	if _, exists := root["a"]; exists {
+		t.Fatal("a was not removed")
+	}
+	if _, exists := root["b"]; exists {
+		t.Fatal("b was not removed")
+	}
+	if root["c"] != 3 {
+		t.Fatalf("c = %#v", root["c"])
+	}
+
+	if err := loader.SetTenantOverrides("acme", map[string]any{"domain": "x", "database.host": "y"}); err != nil {
+		t.Fatalf("SetTenantOverrides: %v", err)
+	}
+	removed, err = loader.DeleteTenantOverrides("acme", []string{"domain", "database.host"})
+	if err != nil || removed != 2 {
+		t.Fatalf("DeleteTenantOverrides = %d, %v", removed, err)
+	}
+	if domain := mustTenant(t, loader, "acme")["domain"]; domain != "acme.example" {
+		t.Fatalf("acme domain = %#v", domain)
+	}
+}

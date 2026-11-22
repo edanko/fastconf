@@ -12,6 +12,13 @@ import (
 	"github.com/edanko/fastconf/internal/sections"
 )
 
+// overrideEntry keeps the caller's path casing (used when an override creates
+// keys) while the override table key de-duplicates paths case-insensitively.
+type overrideEntry struct {
+	segments []string
+	value    any
+}
+
 // SetOverride sets a runtime value at a dot-separated path in the root
 // configuration and in every tenant configuration. Overrides take precedence
 // over every source, are applied after placeholders are resolved, survive
@@ -20,15 +27,22 @@ import (
 // Paths are matched case-insensitively. The reserved tenants section cannot be
 // targeted directly; use SetTenantOverride for a single tenant.
 func (l *Loader) SetOverride(configPath string, value any) error {
-	segments, err := overrideSegments(configPath)
+	entry, err := globalOverrideEntry(configPath, value)
 	if err != nil {
 		return err
 	}
-	if strings.EqualFold(segments[0], sections.Tenants) {
-		return fmt.Errorf("fastconf: override path %q targets the reserved tenants section; use SetTenantOverride", configPath)
+	return l.storeOverrideEntries("", []overrideEntry{entry})
+}
+
+// SetOverrides sets several global overrides with a single snapshot rebuild.
+// Every path is validated before anything is applied, so an invalid path
+// leaves the existing overrides untouched.
+func (l *Loader) SetOverrides(values map[string]any) error {
+	entries, err := globalOverrideEntries(values)
+	if err != nil {
+		return err
 	}
-	_, err = l.updateOverride("", segments, prepareOverrideValue(value), false)
-	return err
+	return l.storeOverrideEntries("", entries)
 }
 
 // SetTenantOverride sets a runtime value at a dot-separated path in one
@@ -39,25 +53,45 @@ func (l *Loader) SetTenantOverride(tenantCode, configPath string, value any) err
 	if strings.TrimSpace(tenantCode) == "" {
 		return fmt.Errorf("fastconf: tenant code must not be empty")
 	}
-	segments, err := overrideSegments(configPath)
+	entry, err := tenantOverrideEntry(configPath, value)
 	if err != nil {
 		return err
 	}
-	_, err = l.updateOverride(tenantCode, segments, prepareOverrideValue(value), false)
-	return err
+	return l.storeOverrideEntries(tenantCode, []overrideEntry{entry})
+}
+
+// SetTenantOverrides sets several overrides for one tenant with a single
+// snapshot rebuild. Every path is validated before anything is applied.
+func (l *Loader) SetTenantOverrides(tenantCode string, values map[string]any) error {
+	if strings.TrimSpace(tenantCode) == "" {
+		return fmt.Errorf("fastconf: tenant code must not be empty")
+	}
+	entries, err := tenantOverrideEntries(values)
+	if err != nil {
+		return err
+	}
+	return l.storeOverrideEntries(tenantCode, entries)
 }
 
 // DeleteOverride removes a runtime override from the root path. It reports
 // whether an override existed; source-provided values are restored.
 func (l *Loader) DeleteOverride(configPath string) (bool, error) {
-	segments, err := overrideSegments(configPath)
+	keys, err := overrideDeletionKeys([]string{configPath}, true)
 	if err != nil {
 		return false, err
 	}
-	if strings.EqualFold(segments[0], sections.Tenants) {
-		return false, fmt.Errorf("fastconf: override path %q targets the reserved tenants section; use DeleteTenantOverride", configPath)
+	removed, err := l.removeOverrideEntries("", keys...)
+	return removed > 0, err
+}
+
+// DeleteOverrides removes several global overrides with a single snapshot
+// rebuild and reports how many existed.
+func (l *Loader) DeleteOverrides(paths []string) (int, error) {
+	keys, err := overrideDeletionKeys(paths, true)
+	if err != nil {
+		return 0, err
 	}
-	return l.updateOverride("", segments, nil, true)
+	return l.removeOverrideEntries("", keys...)
 }
 
 // DeleteTenantOverride removes a runtime override from one tenant path and
@@ -66,95 +100,205 @@ func (l *Loader) DeleteTenantOverride(tenantCode, configPath string) (bool, erro
 	if strings.TrimSpace(tenantCode) == "" {
 		return false, fmt.Errorf("fastconf: tenant code must not be empty")
 	}
-	segments, err := overrideSegments(configPath)
+	keys, err := overrideDeletionKeys([]string{configPath}, false)
 	if err != nil {
 		return false, err
 	}
-	return l.updateOverride(tenantCode, segments, nil, true)
+	removed, err := l.removeOverrideEntries(tenantCode, keys...)
+	return removed > 0, err
 }
 
-// overrideEntry keeps the caller's path casing (used when an override creates
-// keys) while the map key de-duplicates paths case-insensitively.
-type overrideEntry struct {
-	segments []string
-	value    any
+// DeleteTenantOverrides removes several overrides from one tenant with a single
+// snapshot rebuild and reports how many existed.
+func (l *Loader) DeleteTenantOverrides(tenantCode string, paths []string) (int, error) {
+	if strings.TrimSpace(tenantCode) == "" {
+		return 0, fmt.Errorf("fastconf: tenant code must not be empty")
+	}
+	keys, err := overrideDeletionKeys(paths, false)
+	if err != nil {
+		return 0, err
+	}
+	return l.removeOverrideEntries(tenantCode, keys...)
 }
 
-// updateOverride mutates the override tables and rebuilds the published
-// snapshot from the pristine document. loadMutex serializes it with loads and
-// reloads; readers keep using the previous immutable snapshot until the swap.
-func (l *Loader) updateOverride(tenantCode string, segments []string, value any, remove bool) (bool, error) {
+func (l *Loader) removeOverrideEntries(tenantCode string, keys ...string) (int, error) {
+	if len(keys) == 0 {
+		return 0, nil
+	}
 	l.loadMutex.Lock()
 	defer l.loadMutex.Unlock()
 	if l.closed.Load() {
-		return false, ErrClosed
+		return 0, ErrClosed
 	}
 
-	changed := false
+	removed := 0
 	l.overridesMutex.Lock()
 	if tenantCode == "" {
-		key := canonicalOverridePath(segments)
-		if remove {
+		for _, key := range keys {
 			if _, ok := l.overrides[key]; ok {
 				delete(l.overrides, key)
-				changed = true
+				removed++
 			}
-		} else {
-			if l.overrides == nil {
-				l.overrides = make(map[string]overrideEntry)
-			}
-			entry := overrideEntry{segments: segments, value: value}
-			if previous, ok := l.overrides[key]; ok {
-				// Keep the casing of the path that created the keys.
-				entry.segments = previous.segments
-			}
-			l.overrides[key] = entry
-			changed = true
 		}
 	} else {
 		tenantKey := strings.ToLower(tenantCode)
-		if remove {
-			if values, ok := l.tenantOverrides[tenantKey]; ok {
-				key := canonicalOverridePath(segments)
+		if values, ok := l.tenantOverrides[tenantKey]; ok {
+			for _, key := range keys {
 				if _, exists := values[key]; exists {
 					delete(values, key)
-					changed = true
-					if len(values) == 0 {
-						delete(l.tenantOverrides, tenantKey)
-					}
+					removed++
 				}
 			}
-		} else {
-			if l.tenantOverrides == nil {
-				l.tenantOverrides = make(map[string]map[string]overrideEntry)
+			if len(values) == 0 {
+				delete(l.tenantOverrides, tenantKey)
 			}
-			values := l.tenantOverrides[tenantKey]
-			if values == nil {
-				values = make(map[string]overrideEntry)
-				l.tenantOverrides[tenantKey] = values
-			}
-			key := canonicalOverridePath(segments)
-			entry := overrideEntry{segments: segments, value: value}
-			if previous, ok := values[key]; ok {
-				entry.segments = previous.segments
-			}
-			values[key] = entry
-			changed = true
 		}
 	}
 	l.overridesMutex.Unlock()
 
-	if !changed {
-		return false, nil
+	if removed > 0 {
+		l.rebuildSnapshotLocked()
 	}
-	if current := l.snapshot.Load(); current != nil {
-		base := current.pristine
-		if base == nil {
-			base = current.document
+	return removed, nil
+}
+
+func (l *Loader) storeOverrideEntries(tenantCode string, entries []overrideEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	l.loadMutex.Lock()
+	defer l.loadMutex.Unlock()
+	if l.closed.Load() {
+		return ErrClosed
+	}
+
+	l.overridesMutex.Lock()
+	if tenantCode == "" {
+		if l.overrides == nil {
+			l.overrides = make(map[string]overrideEntry)
 		}
-		l.snapshot.Store(l.buildSnapshot(base))
+		for _, entry := range entries {
+			key := canonicalOverridePath(entry.segments)
+			if previous, ok := l.overrides[key]; ok {
+				entry.segments = previous.segments
+			}
+			l.overrides[key] = entry
+		}
+	} else {
+		tenantKey := strings.ToLower(tenantCode)
+		if l.tenantOverrides == nil {
+			l.tenantOverrides = make(map[string]map[string]overrideEntry)
+		}
+		values := l.tenantOverrides[tenantKey]
+		if values == nil {
+			values = make(map[string]overrideEntry)
+			l.tenantOverrides[tenantKey] = values
+		}
+		for _, entry := range entries {
+			key := canonicalOverridePath(entry.segments)
+			if previous, ok := values[key]; ok {
+				entry.segments = previous.segments
+			}
+			values[key] = entry
+		}
 	}
-	return true, nil
+	l.overridesMutex.Unlock()
+
+	l.rebuildSnapshotLocked()
+	return nil
+}
+
+func (l *Loader) rebuildSnapshotLocked() {
+	current := l.snapshot.Load()
+	if current == nil {
+		return
+	}
+	base := current.pristine
+	if base == nil {
+		base = current.document
+	}
+	l.snapshot.Store(l.buildSnapshot(base))
+}
+
+func globalOverrideEntry(configPath string, value any) (overrideEntry, error) {
+	segments, err := overrideSegments(configPath)
+	if err != nil {
+		return overrideEntry{}, err
+	}
+	if strings.EqualFold(segments[0], sections.Tenants) {
+		return overrideEntry{}, fmt.Errorf("fastconf: override path %q targets the reserved tenants section; use SetTenantOverride", configPath)
+	}
+	return overrideEntry{segments: segments, value: prepareOverrideValue(value)}, nil
+}
+
+func tenantOverrideEntry(configPath string, value any) (overrideEntry, error) {
+	segments, err := overrideSegments(configPath)
+	if err != nil {
+		return overrideEntry{}, err
+	}
+	return overrideEntry{segments: segments, value: prepareOverrideValue(value)}, nil
+}
+
+func globalOverrideEntries(values map[string]any) ([]overrideEntry, error) {
+	entries := make([]overrideEntry, 0, len(values))
+	for configPath, value := range values {
+		entry, err := globalOverrideEntry(configPath, value)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	sortOverrideEntries(entries)
+	return entries, nil
+}
+
+func tenantOverrideEntries(values map[string]any) ([]overrideEntry, error) {
+	entries := make([]overrideEntry, 0, len(values))
+	for configPath, value := range values {
+		entry, err := tenantOverrideEntry(configPath, value)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	sortOverrideEntries(entries)
+	return entries, nil
+}
+
+// sortOverrideEntries applies shallow paths first so that deeper paths in one
+// batch consistently win over a parent value.
+func sortOverrideEntries(entries []overrideEntry) {
+	slices.SortFunc(entries, func(a, b overrideEntry) int {
+		if len(a.segments) != len(b.segments) {
+			if len(a.segments) < len(b.segments) {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(canonicalOverridePath(a.segments), canonicalOverridePath(b.segments))
+	})
+}
+
+func overrideDeletionKeys(paths []string, global bool) ([]string, error) {
+	keys := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, configPath := range paths {
+		segments, err := overrideSegments(configPath)
+		if err != nil {
+			return nil, err
+		}
+		if global && strings.EqualFold(segments[0], sections.Tenants) {
+			return nil, fmt.Errorf("fastconf: override path %q targets the reserved tenants section; use DeleteTenantOverride", configPath)
+		}
+		key := canonicalOverridePath(segments)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys, nil
 }
 
 // buildSnapshot applies the current overrides to a copy-on-write view of base.

@@ -244,6 +244,14 @@ err = loader.SetTenantOverride("acme", "database.host", "acme-db.internal")
 
 removed, err := loader.DeleteOverride("features.newBilling")
 removed, err = loader.DeleteTenantOverride("acme", "database.host")
+
+// Batch: validate and apply everything with one rebuild.
+err = loader.SetOverrides(map[string]any{
+	"features.newBilling": true,
+	"database.port":       6000,
+})
+err = loader.SetTenantOverrides("acme", map[string]any{"database.host": "acme-db.internal"})
+removedCount, err := loader.DeleteOverrides([]string{"features.newBilling"})
 ```
 
 An override takes precedence over every source and is applied after
@@ -257,7 +265,9 @@ exist yet keeps its override until a reload introduces it. `Decode`, `Get`,
 Mutations rebuild the snapshot copy-on-write: a tenant override clones only
 that tenant (about 0.1 ms for 1000 tenants), a global override clones every
 tenant (about 0.35 ms), and deleting the last override republishes the pristine
-snapshot. Reads against the previous snapshot are unaffected.
+snapshot. Reads against the previous snapshot are unaffected. Batch calls apply
+all paths in one rebuild and are roughly 10x faster than the same number of
+individual calls, which reapply every existing override on each rebuild.
 
 The bundled server exposes overrides when a token is configured:
 
@@ -272,6 +282,14 @@ curl -X PUT http://127.0.0.1:8080/v1/tenants/acme/config/database.host \
 
 curl -X DELETE http://127.0.0.1:8080/v1/config/features.newBilling \
   -H 'Authorization: Bearer secret'
+
+curl -X PATCH http://127.0.0.1:8080/v1/config \
+  -H 'Authorization: Bearer secret' \
+  -d '{"values": {"features.newBilling": true, "database.port": 6000}}'
+
+curl -X PATCH http://127.0.0.1:8080/v1/tenants/acme/config \
+  -H 'Authorization: Bearer secret' \
+  -d '{"values": {"database.host": "acme-db.internal"}}'
 ```
 
 Mutation endpoints require `-token`/`FASTCONF_SERVER_TOKEN`; without a token
@@ -360,9 +378,11 @@ configuration fails fast. Endpoints:
 | GET | `/v1/config` | configuration root as JSON |
 | GET | `/v1/config/database/host` | value lookup by slash-separated path |
 | PUT | `/v1/config/database/host` | set a runtime override (`{"value": ...}`) |
+| PATCH | `/v1/config` | set several overrides (`{"values": {...}}`) |
 | DELETE | `/v1/config/database/host` | delete a runtime override |
 | GET | `/v1/tenants` | tenant codes |
 | GET | `/v1/tenants/acme` | one tenant configuration |
+| PATCH | `/v1/tenants/acme/config` | set several tenant overrides |
 | PUT | `/v1/tenants/acme/config/domain` | set a tenant runtime override |
 | DELETE | `/v1/tenants/acme/config/domain` | delete a tenant runtime override |
 | POST | `/v1/reload` | reload configuration |

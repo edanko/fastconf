@@ -225,3 +225,64 @@ func TestOverrideEndpointMethodNotAllowed(t *testing.T) {
 		t.Fatalf("Allow = %q", allow)
 	}
 }
+
+func TestBatchOverrideEndpoint(t *testing.T) {
+	t.Parallel()
+	loader := newOverrideAPI(t, "secret")
+	handler := configapi.New(loader, configapi.WithToken("secret"))
+
+	response := callHandler(handler, http.MethodPatch, "/v1/config", `{"values":{"feature.alpha":true,"database.port":6000}}`, "secret")
+	if response.Code != http.StatusOK {
+		t.Fatalf("PATCH status = %d body=%s", response.Code, response.Body.String())
+	}
+	if payload := decodeResponse(t, response); payload["count"] != float64(2) {
+		t.Fatalf("response = %#v", payload)
+	}
+	config := callHandler(handler, http.MethodGet, "/v1/config", "", "secret")
+	var values map[string]any
+	if err := json.Unmarshal(config.Body.Bytes(), &values); err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	features, ok := values["feature"].(map[string]any)
+	if !ok || features["alpha"] != true {
+		t.Fatalf("config = %#v", values)
+	}
+
+	tenant := callHandler(handler, http.MethodPatch, "/v1/tenants/acme/config", `{"values":{"domain":"acme-batch"}}`, "secret")
+	if tenant.Code != http.StatusOK {
+		t.Fatalf("tenant PATCH status = %d body=%s", tenant.Code, tenant.Body.String())
+	}
+	acme := callHandler(handler, http.MethodGet, "/v1/tenants/acme", "", "secret")
+	var acmeValues map[string]any
+	if err := json.Unmarshal(acme.Body.Bytes(), &acmeValues); err != nil {
+		t.Fatalf("acme: %v", err)
+	}
+	if acmeValues["domain"] != "acme-batch" {
+		t.Fatalf("acme domain = %#v", acmeValues["domain"])
+	}
+}
+
+func TestBatchOverrideEndpointValidation(t *testing.T) {
+	t.Parallel()
+	loader := newOverrideAPI(t, "secret")
+	handler := configapi.New(loader, configapi.WithToken("secret"))
+
+	for name, body := range map[string]string{
+		"missing values": `{}`,
+		"unknown field":  `{"values":{},"extra":1}`,
+		"invalid path":   `{"values":{"a..b":1}}`,
+	} {
+		if response := callHandler(handler, http.MethodPatch, "/v1/config", body, "secret"); response.Code != http.StatusBadRequest {
+			t.Fatalf("%s status = %d body=%s", name, response.Code, response.Body.String())
+		}
+	}
+	if response := callHandler(configapi.New(loader), http.MethodPatch, "/v1/config", `{"values":{}}`, ""); response.Code != http.StatusForbidden {
+		t.Fatalf("tokenless PATCH status = %d", response.Code)
+	}
+	if response := callHandler(configapi.New(plainSource{}, configapi.WithToken("secret")), http.MethodPatch, "/v1/config", `{"values":{}}`, "secret"); response.Code != http.StatusNotImplemented {
+		t.Fatalf("unsupported source status = %d", response.Code)
+	}
+	if response := callHandler(handler, http.MethodPut, "/v1/config", "", "secret"); response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("PUT /v1/config status = %d", response.Code)
+	}
+}

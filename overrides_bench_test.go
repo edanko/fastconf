@@ -2,6 +2,7 @@ package fastconf_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/edanko/fastconf"
@@ -77,6 +78,38 @@ func BenchmarkMapWithOverrides(b *testing.B) {
 	for b.Loop() {
 		if _, err := loader.Map(context.Background()); err != nil {
 			b.Fatalf("Map: %v", err)
+		}
+	}
+}
+
+func batchOverrideValues() map[string]any {
+	values := make(map[string]any, 10)
+	for index := range 10 {
+		values[fmt.Sprintf("batch.value%d", index)] = index
+	}
+	return values
+}
+
+func BenchmarkSetOverridesBatch(b *testing.B) {
+	loader := benchmarkOverrideLoader(b)
+	values := batchOverrideValues()
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := loader.SetOverrides(values); err != nil {
+			b.Fatalf("SetOverrides: %v", err)
+		}
+	}
+}
+
+func BenchmarkSetOverrideIndividual(b *testing.B) {
+	loader := benchmarkOverrideLoader(b)
+	values := batchOverrideValues()
+	b.ReportAllocs()
+	for b.Loop() {
+		for configPath, value := range values {
+			if err := loader.SetOverride(configPath, value); err != nil {
+				b.Fatalf("SetOverride: %v", err)
+			}
 		}
 	}
 }

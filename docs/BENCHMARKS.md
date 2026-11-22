@@ -86,14 +86,18 @@ published snapshot is never mutated and memory does not double.
 | `SetOverride` (global, 1001 tenants) | 337 µs | 827 KB | 4,027 |
 | `SetTenantOverride` (one tenant) | 115 µs | 155 KB | 26 |
 | `DeleteOverride` (last override) | 92 µs | 71 KB | 11 |
+| `SetOverrides` (10 global paths) | 2.02 ms | 4.8 MB | 27.1k |
+| 10 separate `SetOverride` calls | 20.5 ms | 47.8 MB | 269k |
 
 A global override clones every tenant map because each tenant receives the
 value; a tenant-scoped override clones one tenant and shares the other 1000.
 Deleting the last override republishes the pristine snapshot without copying.
-Mutations are administrative operations: decoding after an override costs the
-same as before (+3%), while `Map` grows with the extra returned data
-(357 µs vs 249 µs with one global override). Setting N overrides one by one
-performs N rebuilds.
+Batch calls validate every path, then apply all of them in a single rebuild.
+They are about 10x faster than sequential single-path calls, which reapply the
+growing override set on every rebuild (note the superlinear cost above: each
+call rebuilds the whole snapshot). Mutations are administrative operations:
+decoding after an override costs the same as before (+3%), while `Map` grows
+with the extra returned data (357 µs vs 249 µs with one global override).
 
 Expression resolution (`internal/expr`):
 
