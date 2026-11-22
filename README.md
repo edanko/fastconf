@@ -409,10 +409,10 @@ Representative results on an AMD Ryzen 7 9700X (Go 1.27, `-benchmem`):
 
 | Benchmark | time/op | bytes/op | allocs/op |
 | --- | ---: | ---: | ---: |
-| `DecodeStruct` (root + 1001 tenants) | 210 µs | 213 KB | 9 |
-| `DecodeTenantStruct` | 185 ns | 80 B | 1 |
+| `DecodeStruct` (root + 1001 tenants) | 192 µs | 213 KB | 9 |
+| `DecodeTenantStruct` | 164 ns | 80 B | 1 |
 | `ViewGetScalar` | 11.7 ns | 0 B | 0 |
-| `ViewDecodeTenant` | 168 ns | 80 B | 1 |
+| `ViewDecodeTenant` | 153 ns | 80 B | 1 |
 | `DecodeTenantMap` | 208 ns | 672 B | 4 |
 | `DecodeMap` | 237 µs | 755 KB | 4,010 |
 | `DecodeSmallStruct` | 91 ns | 32 B | 1 |

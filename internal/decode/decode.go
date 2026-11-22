@@ -155,6 +155,33 @@ func (d *Decoder) decode(v value.Value, dst reflect.Value, hooks bool, path *pat
 	}
 	typ := dst.Type()
 
+	// Fast path for exact predeclared scalar destinations: these need neither
+	// named-type/TextUnmarshaler inspection nor the generic assignment
+	// dispatch. This is the common case for configuration structs.
+	switch v.Kind() {
+	case value.KindString:
+		if typ == stringType {
+			dst.SetString(v.String())
+			return nil
+		}
+	case value.KindInt:
+		switch typ {
+		case intType, int64Type:
+			dst.SetInt(v.Int())
+			return nil
+		}
+	case value.KindBool:
+		if typ == boolType {
+			dst.SetBool(v.Bool())
+			return nil
+		}
+	case value.KindFloat:
+		if typ == float64Type {
+			dst.SetFloat(v.Float())
+			return nil
+		}
+	}
+
 	// A named string type can validate its input through encoding.TextUnmarshaler,
 	// so it must see the raw text before plain assignment. The predeclared
 	// string type and the well-known named types skip this check, which keeps
@@ -596,6 +623,14 @@ func (d *Decoder) decodeRemain(object *value.Object, indexes []int32, dst reflec
 // fieldValue walks the field index path of a struct value, allocating nil
 // embedded pointers on the way.
 func fieldValue(dst reflect.Value, index []int) (reflect.Value, error) {
+	if len(index) == 1 {
+		field := dst.Field(index[0])
+		if !field.CanSet() {
+			return reflect.Value{}, fmt.Errorf("field %s of %s cannot be set",
+				dst.Type().Field(index[0]).Name, dst.Type())
+		}
+		return field, nil
+	}
 	current := dst
 	for depth, field := range index {
 		current = current.Field(field)

@@ -15,6 +15,7 @@ import (
 
 var (
 	boolType            = reflect.TypeOf(false)
+	intType             = reflect.TypeFor[int]()
 	int64Type           = reflect.TypeFor[int64]()
 	float64Type         = reflect.TypeFor[float64]()
 	stringType          = reflect.TypeFor[string]()

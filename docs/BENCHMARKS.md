@@ -49,14 +49,14 @@ Median values, `go test -run '^$' -bench . -benchmem -count=10`:
 
 | Benchmark | time/op | bytes/op | allocs/op |
 | --- | ---: | ---: | ---: |
-| `DecodeStruct` (root + 1001 tenants) | 210 µs | 213,240 B | 9 |
-| `DecodeTenantStruct` | 185 ns | 80 B | 1 |
+| `DecodeStruct` (root + 1001 tenants) | 192 µs | 213,240 B | 9 |
+| `DecodeTenantStruct` | 164 ns | 80 B | 1 |
 | `DecodeTenantMap` | 208 ns | 672 B | 4 |
 | `DecodeMap` | 237 µs | 754,721 B | 4,010 |
 | `LoadDocument` (1001 tenants) | 1.19 ms | 2,444,890 B | 14,079 |
 | `DecodeSmallStruct` | 91 ns | 32 B | 1 |
 | `ViewGetScalar` | 11.7 ns | 0 B | 0 |
-| `ViewDecodeTenant` | 168 ns | 80 B | 1 |
+| `ViewDecodeTenant` | 153 ns | 80 B | 1 |
 | `ViewTenantLookup` | 34 ns | 112 B | 1 |
 | `LoaderGetScalar` | 46 ns | 48 B | 1 |
 
@@ -64,9 +64,9 @@ Decoder package benchmarks (`internal/decode`):
 
 | Benchmark | time/op | bytes/op | allocs/op |
 | --- | ---: | ---: | ---: |
-| `DecodeTenantsMap` (1001 tenants) | 231 µs | 213 KB | 9 |
-| `DecodeTenantStruct` | 185 ns | 80 B | 1 |
-| `DecodeScalarStruct` | 121 ns | 48 B | 1 |
+| `DecodeTenantsMap` (1001 tenants) | 205 µs | 213 KB | 9 |
+| `DecodeTenantStruct` | 164 ns | 80 B | 1 |
+| `DecodeScalarStruct` | 112 ns | 48 B | 1 |
 
 Expression resolution (`internal/expr`):
 
@@ -93,8 +93,8 @@ present in this repository.
 
 | Benchmark | baseline time | fastconf time | speedup | baseline allocs | fastconf allocs |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Root struct + 1001 tenants | 2.77 ms | 210 µs | 13.2× | 49,150 | 9 |
-| Single tenant struct | 2.82 µs | 185 ns | 15.3× | 46 | 1 |
+| Root struct + 1001 tenants | 2.77 ms | 192 µs | 14.4× | 49,150 | 9 |
+| Single tenant struct | 2.82 µs | 164 ns | 17.2× | 46 | 1 |
 | Single tenant map | 252 ns | 208 ns | 1.21× | 4 | 4 |
 | Whole configuration map | 282 µs | 237 µs | 1.19× | 4,019 | 4,010 |
 
@@ -148,7 +148,13 @@ Each optimization was validated with pprof and a before/after benchmark.
    and copy with direct type switches instead of reflection-based merging, and
    the file hierarchy reads and remaps each directory document once.
 
-10. **Canonical JSON fast path.** `encoding/json` already produces canonical
+10. **Exact scalar fast paths in the decoder.** `decode` now assigns predeclared
+    string, int, int64, bool and float64 destinations directly instead of going
+    through named-type inspection, the generic assignment dispatch, hook checks
+    and special-type checks. Struct decode dropped from 210 us to 192 us, a
+    single tenant from 185 ns to 164 ns, and `map[string]Tenant` decode from
+    231 us to 205 us; the scalar struct benchmark went from 121 ns to 112 ns.
+11. **Canonical JSON fast path.** `encoding/json` already produces canonical
     objects and lists, so the JSON decoder is registered as canonical and
     `encoding.Decode` skips the normalization traversal for it. YAML and TOML,
     which can produce `map[any]any` or typed slices, still normalize, and so do
@@ -203,6 +209,24 @@ Every cache in the library is small and must stay warm to be useful:
 
 A weak cache would therefore add overhead without reducing a meaningful
 working set. It is not adopted.
+
+### `unsafe` field assignment
+
+A prototype decoded 1001 tenants with six string fields using
+`reflect.Value.SetString` versus `unsafe.Pointer` offsets:
+
+| Layer | reflect | unsafe |
+| --- | ---: | ---: |
+| field writes only | 15.4 µs | 2.0 µs (7.5× faster) |
+| full generic map decode | 46 µs | 35 µs (23% faster) |
+
+The gap shrinks in a full decode because map allocation and
+`reflect.Value.SetMapIndex` cannot be replaced by field-offset writes, and in
+the real decoder field writes are a small share of per-tenant cost. The safe
+exact-type fast paths above delivered a comparable 9-11% improvement without
+unsafe. The approach is not adopted: it does not produce a large end-to-end
+win, it sacrifices memory safety and portability, and it would need careful
+offset handling for embedded, squashed and pointer fields.
 
 ### json-iterator (`github.com/json-iterator/go`)
 
