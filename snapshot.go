@@ -30,6 +30,10 @@ func newSnapshot(document map[string]any) *snapshot {
 	tenants := make(map[string]map[string]any)
 	codes := make([]string, 0)
 	if rawTenants, ok := config[sections.Tenants].(map[string]any); ok {
+		// The tenant count is known here: pre-sizing avoids repeatedly
+		// reallocating the map buckets and the code slice while filling them.
+		tenants = make(map[string]map[string]any, len(rawTenants))
+		codes = make([]string, 0, len(rawTenants))
 		for code, tenant := range rawTenants {
 			tenantValues, ok := tenant.(map[string]any)
 			if !ok {
