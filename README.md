@@ -24,6 +24,8 @@ decodes the result into Go structs.
 - **Remote configuration** — retries with exponential backoff, bearer/basic/
   OAuth2 client-credentials/HMAC authentication, conditional requests, stale
   disk cache fallback and asynchronous debounced refresh.
+- **Consistent zero-copy views** — `Loader.View` pins one immutable snapshot;
+  typed reads are allocation-free and struct decoding does not copy data.
 - **Coalesced loading** — concurrent decodes and reloads share one in-flight
   load through an internal singleflight group.
 - **Low allocation decode** — immutable value trees, cached reflection plans and
@@ -194,6 +196,36 @@ tenantMap, err := loader.TenantMap(ctx, "acme")
 A default tenant named `default` always exists. Change it with
 `WithDefaultTenant("acme")` or disable it with `WithoutDefaultTenant()`.
 Tenant lookup is case-insensitive.
+
+## Consistent read views
+
+`Loader.View` pins the current immutable snapshot for zero-copy reads:
+
+```go
+view, err := loader.View(ctx)
+if err != nil {
+	return err
+}
+
+host, ok := view.String("database.host") // scalar reads, no allocation
+tenantView, ok := view.Tenant("acme")
+if ok {
+	var tenant TenantConfig
+	err = tenantView.Decode(&tenant) // zero-copy struct decode
+}
+```
+
+A view keeps observing the snapshot it was created from: call `loader.View`
+again after `Reload` to see fresh values. Scalar reads and `Decode` do not copy
+configuration data, `Get` returns deep copies for objects and lists so callers
+may modify them safely, and `Map`/`TenantMap` remain available when a mutable
+map of the whole scope is required.
+
+| Read | time/op | allocations |
+| --- | ---: | ---: |
+| `view.String("domain")` | 11.7 ns | 0 |
+| `tenantView.Decode(&cfg)` | 168 ns | 1 |
+| `loader.Get(ctx, "tenants.tenant1.domain")` | 46 ns | 1 |
 
 ## Remote configuration
 
@@ -377,6 +409,8 @@ Representative results on an AMD Ryzen 7 9700X (Go 1.27, `-benchmem`):
 | --- | ---: | ---: | ---: |
 | `DecodeStruct` (root + 1001 tenants) | 210 µs | 213 KB | 9 |
 | `DecodeTenantStruct` | 185 ns | 80 B | 1 |
+| `ViewGetScalar` | 11.7 ns | 0 B | 0 |
+| `ViewDecodeTenant` | 168 ns | 80 B | 1 |
 | `DecodeTenantMap` | 208 ns | 672 B | 4 |
 | `DecodeMap` | 237 µs | 755 KB | 4,010 |
 | `DecodeSmallStruct` | 91 ns | 32 B | 1 |

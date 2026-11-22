@@ -29,6 +29,9 @@ microservice configuration.
 | `BenchmarkDecodeMap` | deep copy of the whole configuration root |
 | `BenchmarkLoadDocument` | full load pipeline: source merge, hierarchy collapse, tenant expansion, resolution |
 | `BenchmarkDecodeSmallStruct` | decode a 3-field configuration |
+| `BenchmarkViewGetScalar` | typed scalar read through a pinned view |
+| `BenchmarkViewDecodeTenant` | decode one tenant through a pinned view |
+| `BenchmarkLoaderGetScalar` | the same read through `Loader.Get` for comparison |
 
 Package-level benchmarks additionally cover file decoding (`encoding`,
 `layers`), expression resolution (`internal/expr`) and the struct decoder
@@ -52,6 +55,10 @@ Median values, `go test -run '^$' -bench . -benchmem -count=10`:
 | `DecodeMap` | 237 µs | 754,721 B | 4,010 |
 | `LoadDocument` (1001 tenants) | 1.19 ms | 2,444,890 B | 14,079 |
 | `DecodeSmallStruct` | 91 ns | 32 B | 1 |
+| `ViewGetScalar` | 11.7 ns | 0 B | 0 |
+| `ViewDecodeTenant` | 168 ns | 80 B | 1 |
+| `ViewTenantLookup` | 34 ns | 112 B | 1 |
+| `LoaderGetScalar` | 46 ns | 48 B | 1 |
 
 Decoder package benchmarks (`internal/decode`):
 
@@ -91,6 +98,11 @@ present in this repository.
 | Single tenant map | 252 ns | 208 ns | 1.21× | 4 | 4 |
 | Whole configuration map | 282 µs | 237 µs | 1.19× | 4,019 | 4,010 |
 
+Read views are a new API with no baseline equivalent; they exist because map
+copies are allocation-bound. A pinned view resolves a typed scalar in 11.7 ns
+without allocating, and a tenant decode through a view is ~9% faster than the
+equivalent loader call because it skips the snapshot and tenant lookup.
+
 Struct decoding is where the rewrite pays off: a 1001-tenant decode went from
 49,150 allocations to 9. The map-returning methods are deep copies by contract,
 so their cost is proportional to the size of the returned map; they are at
@@ -127,7 +139,12 @@ Each optimization was validated with pprof and a before/after benchmark.
    every key into a fresh map. Whole-document copy fell from 259 us to 237 us
    and a tenant copy from 230 ns to 208 ns with the same allocation count; the
    remaining cost is the mandatory map allocation per nested object.
-8. **Allocation-free hierarchy merge.** `internal/maps` implements deep merge
+8. **Zero-copy read views.** `Loader.View` pins one immutable snapshot and
+   exposes typed getters, tenant subviews and zero-copy struct decoding. Path
+   segments are collected in a stack buffer, so `view.String("domain")` is
+   11.7 ns with zero allocations. `Get` still copies objects and lists by
+   design; `Map` and `TenantMap` remain the explicit mutable-copy APIs.
+9. **Allocation-free hierarchy merge.** `internal/maps` implements deep merge
    and copy with direct type switches instead of reflection-based merging, and
    the file hierarchy reads and remaps each directory document once.
 

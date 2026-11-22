@@ -171,3 +171,75 @@ func BenchmarkDecodeSmallStruct(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkViewGetScalar(b *testing.B) {
+	ctx := context.Background()
+	loader := benchmarkLoader(b, 1000)
+	view, err := loader.View(ctx)
+	if err != nil {
+		b.Fatalf("View: %v", err)
+	}
+	tenant, ok := view.Tenant("tenant1")
+	if !ok {
+		b.Fatal("tenant view is missing")
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if domain, ok := tenant.String("domain"); !ok || domain == "" {
+			b.Fatal("domain is missing")
+		}
+	}
+}
+
+func BenchmarkLoaderGetScalar(b *testing.B) {
+	ctx := context.Background()
+	loader := benchmarkLoader(b, 1000)
+	if _, _, err := loader.Get(ctx, "tenants.tenant1.domain"); err != nil {
+		b.Fatalf("warm up: %v", err)
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if value, ok, err := loader.Get(ctx, "tenants.tenant1.domain"); err != nil || !ok || value == "" {
+			b.Fatal("domain is missing")
+		}
+	}
+}
+
+func BenchmarkViewTenantLookup(b *testing.B) {
+	ctx := context.Background()
+	loader := benchmarkLoader(b, 1000)
+	view, err := loader.View(ctx)
+	if err != nil {
+		b.Fatalf("View: %v", err)
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, ok := view.Tenant("tenant1"); !ok {
+			b.Fatal("tenant view is missing")
+		}
+	}
+}
+
+func BenchmarkViewDecodeTenant(b *testing.B) {
+	ctx := context.Background()
+	loader := benchmarkLoader(b, 1000)
+	view, err := loader.View(ctx)
+	if err != nil {
+		b.Fatalf("View: %v", err)
+	}
+	tenant, ok := view.Tenant("tenant1")
+	if !ok {
+		b.Fatal("tenant view is missing")
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		var decoded benchmarkTenant
+		if err := tenant.Decode(&decoded); err != nil {
+			b.Fatalf("Decode: %v", err)
+		}
+	}
+}
