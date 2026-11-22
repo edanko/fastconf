@@ -7,6 +7,7 @@ import (
 
 	"github.com/edanko/fastconf/internal/doc"
 	"github.com/edanko/fastconf/internal/maps"
+	"github.com/edanko/fastconf/internal/sections"
 )
 
 func document(values map[string]any) map[string]any {
@@ -285,5 +286,96 @@ func TestResolveRootAndTenants(t *testing.T) {
 	acme = tenants["acme"].(map[string]any)
 	if acme["publicUrl"] != "https://acme.example/acme" {
 		t.Fatalf("tenant publicUrl = %v", acme["publicUrl"])
+	}
+}
+
+// referenceMergeRootIntoTenants is the previous two-pass algorithm, kept in
+// tests as the semantic reference for the fused implementation.
+func referenceMergeRootIntoTenants(document map[string]any) error {
+	root, ok := Config(document)
+	if !ok {
+		return nil
+	}
+	tenants, ok := maps.GetMap(root, []string{sections.Tenants})
+	if !ok {
+		return nil
+	}
+	base := maps.DeepCopyMap(root)
+	delete(base, sections.Tenants)
+	for code, raw := range tenants {
+		tenant := raw.(map[string]any)
+		merged := maps.DeepCopyMap(base)
+		maps.Merge(merged, tenant)
+		tenants[code] = merged
+	}
+	return nil
+}
+
+func TestMergeRootIntoTenantsMatchesReference(t *testing.T) {
+	tests := []struct {
+		name   string
+		config map[string]any
+	}{
+		{
+			name: "overlapping objects and lists",
+			config: map[string]any{
+				"domain": "root",
+				"list":   []any{"root"},
+				"database": map[string]any{
+					"host":    "root-db",
+					"port":    5432,
+					"options": map[string]any{"a": "root", "b": "root"},
+				},
+				"tenants": map[string]any{
+					"acme": map[string]any{
+						"domain":   "acme",
+						"list":     []any{"acme"},
+						"database": map[string]any{"host": "acme-db", "options": map[string]any{"b": "acme", "c": "acme"}},
+					},
+					"globex": map[string]any{
+						"database": "scalar-overrides-object",
+					},
+				},
+			},
+		},
+		{
+			name: "root object replaced by tenant scalar and tenant extra keys",
+			config: map[string]any{
+				"nested": map[string]any{"x": 1, "y": map[string]any{"z": true}},
+				"scalar": "root",
+				"tenants": map[string]any{
+					"t1": map[string]any{"nested": "flat", "extra": []any{1, 2}},
+					"t2": map[string]any{"nested": map[string]any{"y": map[string]any{"w": 0}}},
+				},
+			},
+		},
+		{
+			name: "nil and empty values",
+			config: map[string]any{
+				"nilValue":  nil,
+				"emptyMap":  map[string]any{},
+				"emptyList": []any{},
+				"tenants":   map[string]any{"t": map[string]any{"nilValue": "set"}},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := maps.DeepCopyMap(document(test.config))
+			want := maps.DeepCopyMap(document(test.config))
+
+			if err := MergeRootIntoTenants(got); err != nil {
+				t.Fatalf("MergeRootIntoTenants: %v", err)
+			}
+			if err := referenceMergeRootIntoTenants(want); err != nil {
+				t.Fatalf("reference: %v", err)
+			}
+			if !reflect.DeepEqual(rootOf(t, got), rootOf(t, want)) {
+				t.Fatalf("merged root = %#v, want %#v", rootOf(t, got), rootOf(t, want))
+			}
+			if !reflect.DeepEqual(rootOf(t, got)["tenants"], rootOf(t, want)["tenants"]) {
+				t.Fatalf("merged tenants = %#v, want %#v", rootOf(t, got)["tenants"], rootOf(t, want)["tenants"])
+			}
+		})
 	}
 }

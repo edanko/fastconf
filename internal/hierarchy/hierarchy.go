@@ -10,6 +10,7 @@ package hierarchy
 import (
 	"context"
 	"fmt"
+	maps0 "maps"
 
 	"github.com/edanko/fastconf/internal/expr"
 	"github.com/edanko/fastconf/internal/maps"
@@ -67,15 +68,42 @@ func MergeRootIntoTenants(document map[string]any) error {
 	if !ok {
 		return nil
 	}
-	base := maps.DeepCopyMap(root)
-	delete(base, sections.Tenants)
+	// Collect the root defaults once instead of deep-copying the whole root for
+	// every tenant and then merging the tenant into that copy (two traversals
+	// and a surplus map per tenant). Each tenant object is adopted by the
+	// merged object: this load owns the document and tenants[code] is replaced,
+	// so nothing else can observe the adopted containers. Root values are still
+	// copied because every tenant shares them.
+	type rootEntry struct {
+		key   string
+		value any
+	}
+	base := make([]rootEntry, 0, len(root))
+	for key, value := range root {
+		if key == sections.Tenants {
+			continue
+		}
+		base = append(base, rootEntry{key: key, value: value})
+	}
 	for code, raw := range tenants {
 		tenant, ok := raw.(map[string]any)
 		if !ok {
 			return fmt.Errorf("tenant %q: expected an object, got %T", code, raw)
 		}
-		merged := maps.DeepCopyMap(base)
-		maps.Merge(merged, tenant)
+		merged := make(map[string]any, len(base)+len(tenant))
+		maps0.Copy(merged, tenant)
+		for _, entry := range base {
+			current, exists := merged[entry.key]
+			if !exists {
+				merged[entry.key] = maps.DeepCopy(entry.value)
+				continue
+			}
+			currentObject, currentIsObject := current.(map[string]any)
+			defaultObject, defaultIsObject := entry.value.(map[string]any)
+			if currentIsObject && defaultIsObject {
+				mergeDefaults(currentObject, defaultObject)
+			}
+		}
 		tenants[code] = merged
 	}
 	return nil
@@ -268,4 +296,23 @@ func collapseInto(destination, source map[string]any, subsystem, application str
 	}
 	maps.Merge(destination, applicationValues)
 	return nil
+}
+
+// mergeDefaults fills target with the keys of defaults that target does not
+// already have, recursing when both sides hold objects. target wins every
+// conflict, matching maps.Merge(deepCopy(defaults), target) without copying
+// target.
+func mergeDefaults(target, defaults map[string]any) {
+	for key, defaultValue := range defaults {
+		current, exists := target[key]
+		if exists {
+			currentObject, currentIsObject := current.(map[string]any)
+			defaultObject, defaultIsObject := defaultValue.(map[string]any)
+			if currentIsObject && defaultIsObject {
+				mergeDefaults(currentObject, defaultObject)
+			}
+			continue
+		}
+		target[key] = maps.DeepCopy(defaultValue)
+	}
 }
