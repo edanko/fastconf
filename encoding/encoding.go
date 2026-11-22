@@ -4,6 +4,13 @@
 // map[string]any, every list is a []any and scalar values are kept as the
 // format decoder produced them. Built-in decoders for YAML, JSON and TOML are
 // registered at startup; Register and RegisterExtension add new formats.
+//
+// JSON is decoded with encoding/json/v2 when the toolchain enables the
+// goexperiment.jsonv2 flag (the module's target 1.27 toolchain does), and with
+// the standard v1 decoder otherwise. The v2 path rejects duplicate object
+// member names and invalid UTF-8, both malformed input that v1 silently
+// accepted; it avoids the tolerance options because they disable the v2 fast
+// paths.
 package encoding
 
 import (

@@ -32,6 +32,9 @@ decodes the result into Go structs.
   zero map allocations per decoded struct.
 - **Extensible encodings** — register custom JSON/YAML/TOML decoders with
   `encoding.Register`; registered decoders are normalized automatically.
+- **encoding/json/v2 when available** — JSON sources use the standard v2
+  decoder on toolchains that enable it (the 1.27 target), with an automatic v1
+  fallback and no dependency.
 
 ## Installation
 

@@ -30,6 +30,9 @@ jobs:
       - name: Test
         run: go test ./... -race -shuffle=on -count=1
 
+      - name: Test without the jsonv2 experiment
+        run: GOEXPERIMENT=none go test ./... -count=1
+
       - name: Build examples and commands
         run: |
           go build ./examples/...

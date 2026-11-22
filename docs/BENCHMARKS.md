@@ -91,7 +91,13 @@ Source decoding (`layers`):
 | Benchmark | time/op | throughput |
 | --- | ---: | ---: |
 | `DecodeYAML1000Tenants` | 16.9 ms | 31 MB/s |
-| `DecodeJSON1000Tenants` | 3.91 ms | 75 MB/s |
+| `DecodeJSON1000Tenants` | 1.46 ms | 193 MB/s |
+
+JSON uses `encoding/json/v2` when the toolchain enables `goexperiment.jsonv2`
+(the module's target 1.27 toolchain does). With `GOEXPERIMENT=none` the v1
+fallback decodes the same document in 2.08 ms (135 MB/s). Before this change
+the v1 decoder, which delegates to v2 when the experiment is enabled, took
+3.91 ms.
 
 ### Comparison with the measured baseline
 
@@ -196,6 +202,17 @@ Each optimization was validated with pprof and a before/after benchmark.
     optional interface and keeps the copying path for other `Source`
     implementations. `/v1/config` fell from 706 us to 430 us and from 4,042 to
     28 allocations; `/v1/tenants/{code}` fell by 15%.
+
+16. **encoding/json/v2 for JSON sources.** When the toolchain enables the
+    `jsonv2` experiment, JSON documents are decoded by `jsonv2.UnmarshalRead`
+    instead of the v1 decoder, which itself delegates to v2 with v1 options and
+    is considerably slower. JSON document decoding fell from 3.91 ms to 1.46 ms
+    (193 MB/s), bytes/op from 3.79 MB to 2.38 MB and allocations from 61.3k to
+    41.1k. A `!goexperiment.jsonv2` file keeps the v1 decoder for builds where
+    the experiment is off; both modes pass the full suite. v2 runs with its
+    strict defaults: duplicate member names and invalid UTF-8 are rejected
+    rather than silently tolerated, and enabling v1-compatible tolerance
+    options would cost about 2.3x in decoding time.
 
 ## Running
 
