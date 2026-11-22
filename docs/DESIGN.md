@@ -103,6 +103,7 @@ m, err := loader.Map(ctx)
 
 view, err := loader.View(ctx)            // pinned immutable snapshot
 host, ok := view.String("database.host") // allocation-free
+err = view.WriteJSON(writer)             // streams the snapshot without copying
 tenantView, ok := view.Tenant("tenant1")
 err = tenantView.Decode(&tenantCfg)
 ```

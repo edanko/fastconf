@@ -226,7 +226,7 @@ map of the whole scope is required.
 | Read | time/op | allocations |
 | --- | ---: | ---: |
 | `view.String("domain")` | 11.7 ns | 0 |
-| `tenantView.Decode(&cfg)` | 168 ns | 1 |
+| `tenantView.Decode(&cfg)` | 142 ns | 1 |
 | `loader.Get(ctx, "tenants.tenant1.domain")` | 46 ns | 1 |
 
 ## Remote configuration
@@ -409,14 +409,14 @@ Representative results on an AMD Ryzen 7 9700X (Go 1.27, `-benchmem`):
 
 | Benchmark | time/op | bytes/op | allocs/op |
 | --- | ---: | ---: | ---: |
-| `DecodeStruct` (root + 1001 tenants) | 192 µs | 213 KB | 9 |
-| `DecodeTenantStruct` | 164 ns | 80 B | 1 |
+| `DecodeStruct` (root + 1001 tenants) | 173 µs | 213 KB | 9 |
+| `DecodeTenantStruct` | 159 ns | 80 B | 1 |
 | `ViewGetScalar` | 11.7 ns | 0 B | 0 |
-| `ViewDecodeTenant` | 153 ns | 80 B | 1 |
+| `ViewDecodeTenant` | 142 ns | 80 B | 1 |
 | `DecodeTenantMap` | 208 ns | 672 B | 4 |
 | `DecodeMap` | 237 µs | 755 KB | 4,010 |
 | `DecodeSmallStruct` | 91 ns | 32 B | 1 |
-| `LoadDocument` (full pipeline, 1001 tenants) | 1.19 ms | 2.44 MB | 14,079 |
+| `LoadDocument` (full pipeline, 1001 tenants) | 0.73 ms | 1.28 MB | 8,045 |
 
 The 1001-tenant struct decode allocates nine objects in total: the destination
 map, its bucket array, one temporary for map entries and the destination

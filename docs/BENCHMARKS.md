@@ -49,14 +49,14 @@ Median values, `go test -run '^$' -bench . -benchmem -count=10`:
 
 | Benchmark | time/op | bytes/op | allocs/op |
 | --- | ---: | ---: | ---: |
-| `DecodeStruct` (root + 1001 tenants) | 192 µs | 213,240 B | 9 |
-| `DecodeTenantStruct` | 164 ns | 80 B | 1 |
+| `DecodeStruct` (root + 1001 tenants) | 173 µs | 213,240 B | 9 |
+| `DecodeTenantStruct` | 159 ns | 80 B | 1 |
 | `DecodeTenantMap` | 208 ns | 672 B | 4 |
 | `DecodeMap` | 237 µs | 754,721 B | 4,010 |
-| `LoadDocument` (1001 tenants) | 1.19 ms | 2,444,890 B | 14,079 |
+| `LoadDocument` (1001 tenants) | 0.73 ms | 1,281,116 B | 8,045 |
 | `DecodeSmallStruct` | 91 ns | 32 B | 1 |
 | `ViewGetScalar` | 11.7 ns | 0 B | 0 |
-| `ViewDecodeTenant` | 153 ns | 80 B | 1 |
+| `ViewDecodeTenant` | 142 ns | 80 B | 1 |
 | `ViewTenantLookup` | 34 ns | 112 B | 1 |
 | `LoaderGetScalar` | 46 ns | 48 B | 1 |
 
@@ -64,9 +64,18 @@ Decoder package benchmarks (`internal/decode`):
 
 | Benchmark | time/op | bytes/op | allocs/op |
 | --- | ---: | ---: | ---: |
-| `DecodeTenantsMap` (1001 tenants) | 205 µs | 213 KB | 9 |
-| `DecodeTenantStruct` | 164 ns | 80 B | 1 |
-| `DecodeScalarStruct` | 112 ns | 48 B | 1 |
+| `DecodeTenantsMap` (1001 tenants) | 200 µs | 213 KB | 9 |
+| `DecodeTenantStruct` | 159 ns | 80 B | 1 |
+| `DecodeScalarStruct` | 107 ns | 48 B | 1 |
+
+Load pipeline and HTTP API:
+
+| Benchmark | time/op | bytes/op | allocs/op |
+| --- | ---: | ---: | ---: |
+| `NewSnapshot` (1001 tenants) | 89 µs | 71 KB | 9 |
+| `LoadDocument` (full pipeline) | 0.73 ms | 1.28 MB | 8,045 |
+| `ConfigEndpoint` (`/v1/config`) | 434 µs | 217 KB | 29 |
+| `TenantEndpoint` (`/v1/tenants/{code}`) | 1.33 µs | 1.6 KB | 24 |
 
 Expression resolution (`internal/expr`):
 
@@ -93,8 +102,8 @@ present in this repository.
 
 | Benchmark | baseline time | fastconf time | speedup | baseline allocs | fastconf allocs |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Root struct + 1001 tenants | 2.77 ms | 192 µs | 14.4× | 49,150 | 9 |
-| Single tenant struct | 2.82 µs | 164 ns | 17.2× | 46 | 1 |
+| Root struct + 1001 tenants | 2.77 ms | 173 µs | 16.0× | 49,150 | 9 |
+| Single tenant struct | 2.82 µs | 159 ns | 17.7× | 46 | 1 |
 | Single tenant map | 252 ns | 208 ns | 1.21× | 4 | 4 |
 | Whole configuration map | 282 µs | 237 µs | 1.19× | 4,019 | 4,010 |
 
@@ -154,12 +163,39 @@ Each optimization was validated with pprof and a before/after benchmark.
     and special-type checks. Struct decode dropped from 210 us to 192 us, a
     single tenant from 185 ns to 164 ns, and `map[string]Tenant` decode from
     231 us to 205 us; the scalar struct benchmark went from 121 ns to 112 ns.
+    A later layout change (item 13) brought these to 173 us and 159 ns.
 11. **Canonical JSON fast path.** `encoding/json` already produces canonical
     objects and lists, so the JSON decoder is registered as canonical and
     `encoding.Decode` skips the normalization traversal for it. YAML and TOML,
     which can produce `map[any]any` or typed slices, still normalize, and so do
     decoders installed with `encoding.Register`. JSON document decoding fell
     from 4.35 ms to 3.91 ms and file loading from 5.02 ms to 4.61 ms.
+
+12. **Fused tenant expansion.** Tenant expansion no longer deep-copies the whole
+    root for every tenant and then merges the tenant into that copy. Root
+    defaults are collected once; each merged object adopts the tenant's own
+    containers (the load owns the document and replaces `tenants[code]`) and
+    fills only missing defaults, recursing when both sides hold objects. The
+    full load went from 1.19 ms to 0.73 ms, bytes from 2.44 MB to 1.28 MB and
+    allocations from 14,079 to 8,045. The previous algorithm is kept in tests as
+    a reference implementation.
+13. **80-byte Value.** `Value` stored mutually exclusive `int64` and `float64`
+    payloads in separate words. Packing them into one `uint64` (integer value or
+    `math.Float64bits`) shrinks it from 88 to 80 bytes, and it is copied by
+    value through every decode call and object access: struct decode −9.4%,
+    view tenant decode −9.1%, tenant struct decode −7.1%, with identical
+    allocation counts. Reordering fields alone measured exactly zero gain.
+14. **Snapshot preallocation.** `newSnapshot` knows the tenant count but built
+    its tenant map and code slice without hints. Pre-sizing them cut snapshot
+    construction from 122.7 us to 88.5 us, from 141 KB to 70 KB and from 34 to 9
+    allocations.
+15. **Snapshot streaming in the API.** The config API previously called
+    `Map`/`TenantMap`, whose deep copies exist only to protect callers from
+    mutating the snapshot, and then encoded the copy. `View.WriteJSON` streams
+    the pinned immutable snapshot directly; the handler prefers it through an
+    optional interface and keeps the copying path for other `Source`
+    implementations. `/v1/config` fell from 706 us to 430 us and from 4,042 to
+    28 allocations; `/v1/tenants/{code}` fell by 15%.
 
 ## Running
 
@@ -172,6 +208,25 @@ benchstat before.txt after.txt
 ```
 
 ## Explored and not adopted
+
+### go-optimization-guide
+
+The techniques in
+[astavonin/go-optimization-guide](https://github.com/astavonin/go-optimization-guide)
+were evaluated against this codebase. Adopted: batch/fuse copies (item 12),
+payload packing instead of field reordering (item 13), collection preallocation
+(item 14) and sharing immutable data instead of copying it (item 15).
+
+Rejected with measurements: building maps with `make`+assign instead of
+`maps.Clone` is 12.6% slower for a 1001-key map in Go 1.27 because Swiss-map
+clone copies groups in bulk (the guide's advice predates that); reordering
+`Value` fields without shrinking the payload gives exactly zero (82-byte
+payload rounds to 88 bytes); `sync.Pool` for response buffers and encoders
+changes nothing (619 vs 611 ns, same allocations); `weak`/`unique` caches add
+cost to a 16 ns, allocation-free template cache; and unsafe string/pointer
+tricks are excluded by the safety-first design. The guide's claim that boxing
+always allocates regardless of size is also outdated: small integers use
+`runtime.staticuint64s`.
 
 Two Go memory features were evaluated with the same fixtures and deliberately
 kept out of the hot path.
