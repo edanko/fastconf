@@ -30,6 +30,8 @@ decodes the result into Go structs.
   load through an internal singleflight group.
 - **Low allocation decode** — immutable value trees, cached reflection plans and
   zero map allocations per decoded struct.
+- **Extensible encodings** — register custom JSON/YAML/TOML decoders with
+  `encoding.Register`; registered decoders are normalized automatically.
 
 ## Installation
 

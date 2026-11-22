@@ -36,12 +36,21 @@ func (e Encoding) String() string { return string(e) }
 // Decode converts them into the canonical representation.
 type Decoder func(io.Reader) (map[string]any, error)
 
+// registeredDecoder is one decoder and whether its output is already
+// canonical (objects are map[string]any, lists are []any).
+type registeredDecoder struct {
+	decode    Decoder
+	canonical bool
+}
+
 var (
 	registryMutex sync.RWMutex
-	registry      = map[Encoding]Decoder{
-		YAML: decodeYAML,
-		JSON: decodeJSON,
-		TOML: decodeTOML,
+	registry      = map[Encoding]registeredDecoder{
+		// encoding/json already produces canonical documents, so the
+		// normalization pass can be skipped for JSON.
+		JSON: {decode: decodeJSON, canonical: true},
+		YAML: {decode: decodeYAML},
+		TOML: {decode: decodeTOML},
 	}
 	extensions = map[string]Encoding{
 		"yaml": YAML,
@@ -53,12 +62,15 @@ var (
 
 // Register adds or replaces the decoder of an encoding. A nil decoder is
 // ignored, so a format cannot be registered without a way to decode it.
+//
+// Registered decoders do not need to produce canonical documents: Decode
+// normalizes objects and lists produced by them.
 func Register(enc Encoding, decoder Decoder) {
 	if decoder == nil {
 		return
 	}
 	registryMutex.Lock()
-	registry[enc] = decoder
+	registry[enc] = registeredDecoder{decode: decoder}
 	registryMutex.Unlock()
 }
 
@@ -85,17 +97,20 @@ func Decode(reader io.Reader, enc Encoding) (map[string]any, error) {
 		return nil, fmt.Errorf("encoding: decode %s: nil reader", enc)
 	}
 	registryMutex.RLock()
-	decoder, registered := registry[enc]
+	registered, ok := registry[enc]
 	registryMutex.RUnlock()
-	if !registered {
+	if !ok {
 		return nil, fmt.Errorf("encoding: unsupported format %q", enc)
 	}
-	document, err := decoder(reader)
+	document, err := registered.decode(reader)
 	if err != nil {
 		return nil, fmt.Errorf("encoding: decode %s: %w", enc, err)
 	}
 	if document == nil {
 		return map[string]any{}, nil
+	}
+	if registered.canonical {
+		return document, nil
 	}
 	return normalize(document).(map[string]any), nil
 }

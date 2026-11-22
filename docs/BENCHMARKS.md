@@ -82,7 +82,7 @@ Source decoding (`layers`):
 | Benchmark | time/op | throughput |
 | --- | ---: | ---: |
 | `DecodeYAML1000Tenants` | 16.9 ms | 31 MB/s |
-| `DecodeJSON1000Tenants` | 4.35 ms | 68 MB/s |
+| `DecodeJSON1000Tenants` | 3.91 ms | 75 MB/s |
 
 ### Comparison with the measured baseline
 
@@ -148,6 +148,13 @@ Each optimization was validated with pprof and a before/after benchmark.
    and copy with direct type switches instead of reflection-based merging, and
    the file hierarchy reads and remaps each directory document once.
 
+10. **Canonical JSON fast path.** `encoding/json` already produces canonical
+    objects and lists, so the JSON decoder is registered as canonical and
+    `encoding.Decode` skips the normalization traversal for it. YAML and TOML,
+    which can produce `map[any]any` or typed slices, still normalize, and so do
+    decoders installed with `encoding.Register`. JSON document decoding fell
+    from 4.35 ms to 3.91 ms and file loading from 5.02 ms to 4.61 ms.
+
 ## Running
 
 ```bash
@@ -196,6 +203,26 @@ Every cache in the library is small and must stay warm to be useful:
 
 A weak cache would therefore add overhead without reducing a meaningful
 working set. It is not adopted.
+
+### json-iterator (`github.com/json-iterator/go`)
+
+Evaluated as a potential JSON codec replacement. The repository is archived on
+GitHub (last code commit 2022) and implements its speed with `unsafe` and
+`github.com/modern-go/reflect2` field access. Benchmarks on the same machine
+and a 1000-tenant JSON fixture:
+
+| Operation | encoding/json | jsoniter | allocations (stdlib → jsoniter) |
+| --- | ---: | ---: | ---: |
+| decode to `map[string]any` | 1.36 ms | 0.57 ms | 25,195 → 28,035 |
+| decode to structs | 0.50 ms | 0.37 ms | 5,025 → 14,025 |
+| encode `map[string]any` | 0.39 ms | 1.00 ms | 7 → 23,052 |
+
+Decoding to generic maps is 2.4× faster, but every other shape allocates more,
+and encoding—what the bundled configuration API server does—is 2.6× slower.
+The library's JSON work is load-time only, so it is not adopted, especially
+because the dependency is archived and unsafe-based. Applications that do want
+it can install it through `encoding.Register`; registered decoders are
+normalized automatically.
 
 ### Single value representation
 
