@@ -58,8 +58,11 @@ func (k Kind) String() string {
 type Value struct {
 	kind Kind
 	b    bool
-	i    int64
-	f    float64
+	// num holds the KindInt payload, or the bits of the KindFloat payload.
+	// The two kinds are mutually exclusive, so one word serves both and keeps
+	// Value at 80 bytes instead of 88: it is copied by value through every
+	// decode call and every Object access.
+	num  uint64
 	s    string
 	list []Value
 	obj  *Object
@@ -73,10 +76,10 @@ func Null() Value { return Value{} }
 func Bool(v bool) Value { return Value{kind: KindBool, b: v} }
 
 // Int returns an integer value.
-func Int(v int64) Value { return Value{kind: KindInt, i: v} }
+func Int(v int64) Value { return Value{kind: KindInt, num: uint64(v)} }
 
 // Float returns a floating point value.
-func Float(v float64) Value { return Value{kind: KindFloat, f: v} }
+func Float(v float64) Value { return Value{kind: KindFloat, num: math.Float64bits(v)} }
 
 // String returns a string value.
 func String(v string) Value { return Value{kind: KindString, s: v} }
@@ -162,14 +165,14 @@ func (v Value) IsNull() bool { return v.kind == KindNull }
 func (v Value) Bool() bool { return v.b }
 
 // Int returns the value as an int64. The caller must check the kind first.
-func (v Value) Int() int64 { return v.i }
+func (v Value) Int() int64 { return int64(v.num) }
 
 // Float returns the value as a float64.
 func (v Value) Float() float64 {
 	if v.kind == KindInt {
-		return float64(v.i)
+		return float64(int64(v.num))
 	}
-	return v.f
+	return math.Float64frombits(v.num)
 }
 
 // String returns the value as a string.
@@ -178,9 +181,9 @@ func (v Value) String() string {
 	case KindString:
 		return v.s
 	case KindInt:
-		return strconv.FormatInt(v.i, 10)
+		return strconv.FormatInt(int64(v.num), 10)
 	case KindFloat:
-		return strconv.FormatFloat(v.f, 'g', -1, 64)
+		return strconv.FormatFloat(math.Float64frombits(v.num), 'g', -1, 64)
 	case KindBool:
 		return strconv.FormatBool(v.b)
 	case KindNull:
@@ -217,9 +220,9 @@ func (v Value) Interface() any {
 	case KindBool:
 		return v.b
 	case KindInt:
-		return v.i
+		return int64(v.num)
 	case KindFloat:
-		return v.f
+		return math.Float64frombits(v.num)
 	case KindString:
 		return v.s
 	case KindList:
