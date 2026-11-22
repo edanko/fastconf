@@ -163,7 +163,7 @@ func validateLookupPath(source string, start, end int) error {
 			return compileErrorf(source, i, "invalid character %q in placeholder path", source[i])
 		}
 	}
-	for _, segment := range strings.Split(path, ".") {
+	for segment := range strings.SplitSeq(path, ".") {
 		if strings.TrimSpace(segment) == "" {
 			return compileErrorf(source, start, "placeholder path %q contains an empty segment", path)
 		}

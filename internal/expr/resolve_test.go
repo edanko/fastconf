@@ -3,6 +3,7 @@ package expr
 import (
 	"context"
 	"errors"
+	"maps"
 	"reflect"
 	"strings"
 	"testing"
@@ -212,8 +213,7 @@ func TestResolveCycle(t *testing.T) {
 	if len(cycle.Chain) < 3 || cycle.Chain[0] != cycle.Chain[len(cycle.Chain)-1] {
 		t.Fatalf("cycle chain = %v; want a closed chain", cycle.Chain)
 	}
-	var pathErr *PathError
-	if !errors.As(err, &pathErr) {
+	if _, ok := errors.AsType[*PathError](err); !ok {
 		t.Fatalf("Resolve error type = %T; want *PathError (%v)", err, err)
 	}
 }
@@ -300,9 +300,7 @@ func TestResolveLeavesPlainValues(t *testing.T) {
 		"list":   []any{"a", 1, true},
 	}
 	before := make(map[string]any, len(root))
-	for key, value := range root {
-		before[key] = value
-	}
+	maps.Copy(before, root)
 	if err := Resolve(context.Background(), root); err != nil {
 		t.Fatalf("Resolve error = %v", err)
 	}

@@ -229,7 +229,7 @@ func (l *lexer) identifier() (token, error) {
 	case strings.EqualFold(text, "false"):
 		return token{kind: tokenFalse, offset: start}, nil
 	}
-	for _, segment := range strings.Split(text, ".") {
+	for segment := range strings.SplitSeq(text, ".") {
 		if segment == "" {
 			return token{}, compileErrorf(l.source, start, "variable path %q contains an empty segment", text)
 		}
