@@ -2,6 +2,8 @@ package fastconf
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"strconv"
 	"strings"
 
@@ -232,4 +234,12 @@ func (v *View) lookup(configPath string) (any, bool) {
 		configPath = rest
 	}
 	return maps.GetFold(v.config, segments)
+}
+
+// WriteJSON encodes the viewed configuration scope as one JSON document
+// directly from the immutable snapshot, without copying it. For a configuration
+// endpoint this avoids the deep copy of Map while keeping the snapshot
+// immutable: encoding/json only reads the document.
+func (v *View) WriteJSON(writer io.Writer) error {
+	return json.NewEncoder(writer).Encode(v.config)
 }

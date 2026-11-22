@@ -167,7 +167,22 @@ func (h *handler) health(writer http.ResponseWriter, _ *http.Request) {
 	h.writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// viewSource is implemented by sources that can serve a pinned read-only view,
+// such as *fastconf.Loader. When available it avoids deep-copying the
+// configuration before serializing it.
+type viewSource interface {
+	View(ctx context.Context) (*fastconf.View, error)
+}
+
 func (h *handler) configuration(writer http.ResponseWriter, request *http.Request) {
+	if view, ok, err := h.view(request.Context()); ok {
+		if err != nil {
+			h.writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		h.writeJSONView(writer, http.StatusOK, view)
+		return
+	}
 	values, err := h.source.Map(request.Context())
 	if err != nil {
 		h.writeError(writer, http.StatusInternalServerError, err.Error())
@@ -204,6 +219,19 @@ func (h *handler) tenants(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (h *handler) tenant(writer http.ResponseWriter, request *http.Request, code string) {
+	if view, ok, err := h.view(request.Context()); ok {
+		if err != nil {
+			h.writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		tenantView, found := view.Tenant(code)
+		if !found {
+			h.writeError(writer, http.StatusNotFound, "tenant not found")
+			return
+		}
+		h.writeJSONView(writer, http.StatusOK, tenantView)
+		return
+	}
 	values, err := h.source.TenantMap(request.Context(), code)
 	if errors.Is(err, fastconf.ErrTenantNotFound) {
 		h.writeError(writer, http.StatusNotFound, "tenant not found")
@@ -222,6 +250,23 @@ func (h *handler) reload(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	h.writeJSON(writer, http.StatusOK, map[string]string{"status": "reloaded"})
+}
+
+func (h *handler) view(ctx context.Context) (*fastconf.View, bool, error) {
+	source, ok := h.source.(viewSource)
+	if !ok {
+		return nil, false, nil
+	}
+	view, err := source.View(ctx)
+	return view, true, err
+}
+
+func (h *handler) writeJSONView(writer http.ResponseWriter, status int, view *fastconf.View) {
+	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	writer.WriteHeader(status)
+	if err := view.WriteJSON(writer); err != nil {
+		h.logger.Error("fastconf: api encode response", "error", err)
+	}
 }
 
 func (h *handler) writeJSON(writer http.ResponseWriter, status int, value any) {

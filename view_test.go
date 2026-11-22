@@ -1,8 +1,11 @@
 package fastconf_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -234,5 +237,39 @@ func TestViewConcurrentReads(t *testing.T) {
 	wait.Wait()
 	if failures.Load() != 0 {
 		t.Fatalf("concurrent view reads failed %d times", failures.Load())
+	}
+}
+
+func TestViewWriteJSON(t *testing.T) {
+	t.Parallel()
+	loader := newViewLoader(t)
+	view, err := loader.View(context.Background())
+	if err != nil {
+		t.Fatalf("View: %v", err)
+	}
+	var first bytes.Buffer
+	if err := view.WriteJSON(&first); err != nil {
+		t.Fatalf("WriteJSON: %v", err)
+	}
+	var second bytes.Buffer
+	if err := view.WriteJSON(&second); err != nil {
+		t.Fatalf("WriteJSON second call: %v", err)
+	}
+	if first.String() != second.String() {
+		t.Fatal("WriteJSON output changed between calls")
+	}
+	var encoded, copied any
+	if err := json.Unmarshal(first.Bytes(), &encoded); err != nil {
+		t.Fatalf("unmarshal encoded: %v", err)
+	}
+	raw, err := json.Marshal(view.Map())
+	if err != nil {
+		t.Fatalf("marshal Map: %v", err)
+	}
+	if err := json.Unmarshal(raw, &copied); err != nil {
+		t.Fatalf("unmarshal Map: %v", err)
+	}
+	if !reflect.DeepEqual(encoded, copied) {
+		t.Fatalf("WriteJSON = %#v, Map = %#v", encoded, copied)
 	}
 }
