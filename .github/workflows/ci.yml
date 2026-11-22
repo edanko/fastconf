@@ -38,6 +38,20 @@ jobs:
       - name: Benchmark smoke test
         run: go test ./... -run '^$' -bench . -benchmem -benchtime=50ms
 
+  integration:
+    name: Integration (server + remote layer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          check-latest: true
+      - name: Vet integration tests
+        run: go vet -tags=integration ./test/integration
+      - name: Run integration tests
+        run: go test -race -tags=integration -count=1 -v ./test/integration
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

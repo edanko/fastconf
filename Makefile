@@ -1,4 +1,4 @@
-.PHONY: all build test race vet fmt lint bench cover tidy
+.PHONY: all build test race integration vet fmt lint bench cover tidy
 
 all: fmt vet test build
 
@@ -10,6 +10,9 @@ test:
 
 race:
 	go test -race -count=1 -shuffle=on ./...
+
+integration:
+	go test -race -tags=integration -count=1 -v ./test/integration
 
 vet:
 	go vet ./...

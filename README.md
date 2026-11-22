@@ -348,6 +348,23 @@ loader, _ := fastconf.New(
 
 Unknown configuration keys then fail decoding with the configuration path.
 
+## Testing
+
+```bash
+# Unit and package tests.
+go test ./...
+
+# Race detector.
+go test -race ./...
+
+# End-to-end: builds cmd/fastconf-server, serves configuration over HTTP,
+# loads it through the bootstrap remote layer, checks bearer auth and reload.
+go test -tags=integration -count=1 -v ./test/integration
+```
+
+CI runs the unit and race suites, a dedicated server/remote-layer integration
+job, the linter, govulncheck and a benchmark smoke test.
+
 ## Performance
 
 The decode path converts a document once into an immutable value tree and uses
