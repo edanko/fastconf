@@ -400,7 +400,8 @@ func TestHTTPModifiedAtContext(t *testing.T) {
 	if got, _ := ModifiedAt(ctx); !got.Equal(time.Date(2026, time.March, 4, 5, 6, 7, 0, time.UTC)) {
 		t.Fatalf("context time changed with the caller value: %v", got)
 	}
-	if ctx := WithModifiedAt(nil, nil); ctx == nil { //nolint:staticcheck // nil context handling is under test
+	var nilContext context.Context
+	if ctx := WithModifiedAt(nilContext, nil); ctx == nil {
 		t.Fatal("WithModifiedAt returned a nil context")
 	}
 }

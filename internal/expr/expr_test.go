@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -352,7 +353,10 @@ func TestResolveNilContextGuard(t *testing.T) {
 	t.Parallel()
 
 	root := map[string]any{"name": "svc", "copy": "${name}"}
-	if err := Resolve(nil, root); err != nil { //nolint:staticcheck // nil context is part of the contract under test
+	// A typed nil context still exercises the nil guard without passing an
+	// untyped nil literal, which static analysis reports as SA1012.
+	var nilContext context.Context
+	if err := Resolve(nilContext, root); err != nil {
 		t.Fatalf("Resolve(nil, values) error = %v", err)
 	}
 	if root["copy"] != "svc" {
