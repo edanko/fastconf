@@ -1,0 +1,10 @@
+# Test and profiling artifacts
+*.test
+*.prof
+*.out
+bench.txt
+coverage.out
+
+# Local tooling
+.idea/
+.vscode/
