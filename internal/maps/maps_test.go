@@ -149,3 +149,57 @@ func TestDeepCopyNestedLists(t *testing.T) {
 		t.Fatal("nested list object is shared with the source")
 	}
 }
+
+func TestSetFoldAndDeleteFold(t *testing.T) {
+	document := map[string]any{
+		"Database": map[string]any{"Host": "old"},
+	}
+	if err := SetFold(document, []string{"database", "host"}, "new"); err != nil {
+		t.Fatalf("SetFold: %v", err)
+	}
+	if err := SetFold(document, []string{"Database", "Port"}, 5432); err != nil {
+		t.Fatalf("SetFold new key: %v", err)
+	}
+	database := document["Database"].(map[string]any)
+	if database["Host"] != "new" {
+		t.Fatalf("Host = %#v, want replaced value", database["Host"])
+	}
+	if database["Port"] != 5432 {
+		t.Fatalf("Port = %#v", database["Port"])
+	}
+
+	value, ok := DeleteFold(document, []string{"DATABASE", "host"})
+	if !ok || value != "new" {
+		t.Fatalf("DeleteFold = %#v, %v", value, ok)
+	}
+	if _, exists := database["Host"]; exists {
+		t.Fatal("DeleteFold did not remove the key")
+	}
+	if _, ok := DeleteFold(document, []string{"database", "host"}); ok {
+		t.Fatal("DeleteFold reported a missing path as removed")
+	}
+	if _, ok := DeleteFold(document, []string{"database", "host", "deep"}); ok {
+		t.Fatal("DeleteFold walked through a missing path")
+	}
+}
+
+func TestSetFoldRejectsNonObject(t *testing.T) {
+	document := map[string]any{"Database": "scalar"}
+	if err := SetFold(document, []string{"database", "host"}, "value"); err == nil {
+		t.Fatal("SetFold replaced a scalar intermediate object")
+	}
+}
+
+func TestSetFoldForceReplacesScalar(t *testing.T) {
+	document := map[string]any{"Database": "scalar"}
+	if err := SetFoldForce(document, []string{"database", "host"}, "db.example"); err != nil {
+		t.Fatalf("SetFoldForce: %v", err)
+	}
+	database, ok := document["Database"].(map[string]any)
+	if !ok {
+		t.Fatalf("Database = %#v, want an object", document["Database"])
+	}
+	if database["host"] != "db.example" {
+		t.Fatalf("host = %#v", database["host"])
+	}
+}

@@ -101,6 +101,9 @@ err = loader.Decode(ctx, &cfg)
 err = loader.DecodeTenant(ctx, "tenant1", &tenantCfg)
 m, err := loader.Map(ctx)
 
+err = loader.SetOverride("features.newBilling", true) // runtime override
+err = loader.SetTenantOverride("tenant1", "database.host", "db.internal")
+
 view, err := loader.View(ctx)            // pinned immutable snapshot
 host, ok := view.String("database.host") // allocation-free
 err = view.WriteJSON(writer)             // streams the snapshot without copying

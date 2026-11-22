@@ -94,6 +94,13 @@ func RegisterExtension(extension string, enc Encoding) {
 	registryMutex.Unlock()
 }
 
+// Normalize converts maps and slices in value to the canonical document types
+// (map[string]any and []any). Values that are already canonical are returned
+// unchanged apart from nested conversions.
+func Normalize(value any) any {
+	return normalize(value)
+}
+
 // Decode decodes a document of the given encoding.
 //
 // The returned document is always an object: nested objects are converted to

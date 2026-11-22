@@ -12,7 +12,11 @@ import (
 
 // snapshot is an immutable loaded configuration.
 type snapshot struct {
-	document    map[string]any
+	document map[string]any
+	// pristine is the document before runtime overrides were applied. It is
+	// nil when no overrides existed at build time and lets a later override
+	// change rebuild from source values instead of from overridden ones.
+	pristine    map[string]any
 	config      map[string]any
 	tenants     map[string]map[string]any
 	tenantCodes []string

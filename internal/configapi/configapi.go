@@ -60,8 +60,12 @@ func WithToken(token string) Option {
 //	GET  /healthz               health probe
 //	GET  /v1/config             configuration root
 //	GET  /v1/config/{path...}   value lookup, slash-separated path
+//	PUT  /v1/config/{path...}   set a runtime override
+//	DELETE /v1/config/{path...} delete a runtime override
 //	GET  /v1/tenants            tenant codes
 //	GET  /v1/tenants/{code}     one tenant configuration
+//	PUT  /v1/tenants/{code}/config/{path...}    set a tenant override
+//	DELETE /v1/tenants/{code}/config/{path...} delete a tenant override
 //	POST /v1/reload             reload configuration
 func New(source Source, options ...Option) http.Handler {
 	h := &handler{
@@ -122,16 +126,36 @@ func (h *handler) route(writer http.ResponseWriter, request *http.Request) {
 			h.configuration(writer, request)
 		}
 	case strings.HasPrefix(path, "/v1/config/"):
-		if h.allowMethod(writer, request, http.MethodGet) {
-			h.value(writer, request, strings.TrimPrefix(path, "/v1/config/"))
+		rawPath := strings.TrimPrefix(path, "/v1/config/")
+		switch request.Method {
+		case http.MethodGet:
+			h.value(writer, request, rawPath)
+		case http.MethodPut:
+			h.setOverride(writer, request, "", rawPath)
+		case http.MethodDelete:
+			h.deleteOverride(writer, request, "", rawPath)
+		default:
+			h.methodNotAllowed(writer, http.MethodGet, http.MethodPut, http.MethodDelete)
 		}
 	case path == "/v1/tenants":
 		if h.allowMethod(writer, request, http.MethodGet) {
 			h.tenants(writer, request)
 		}
 	case strings.HasPrefix(path, "/v1/tenants/"):
+		remainder := strings.TrimPrefix(path, "/v1/tenants/")
+		if code, rawPath, ok := cutTenantOverride(remainder); ok {
+			switch request.Method {
+			case http.MethodPut:
+				h.setOverride(writer, request, code, rawPath)
+			case http.MethodDelete:
+				h.deleteOverride(writer, request, code, rawPath)
+			default:
+				h.methodNotAllowed(writer, http.MethodPut, http.MethodDelete)
+			}
+			return
+		}
 		if h.allowMethod(writer, request, http.MethodGet) {
-			h.tenant(writer, request, strings.TrimPrefix(path, "/v1/tenants/"))
+			h.tenant(writer, request, remainder)
 		}
 	case path == "/v1/reload":
 		if h.allowMethod(writer, request, http.MethodPost) {
@@ -172,6 +196,15 @@ func (h *handler) health(writer http.ResponseWriter, _ *http.Request) {
 // configuration before serializing it.
 type viewSource interface {
 	View(ctx context.Context) (*fastconf.View, error)
+}
+
+// overrideSource is implemented by sources that support runtime overrides,
+// such as *fastconf.Loader. Mutation endpoints return 501 for other sources.
+type overrideSource interface {
+	SetOverride(configPath string, value any) error
+	SetTenantOverride(tenantCode, configPath string, value any) error
+	DeleteOverride(configPath string) (bool, error)
+	DeleteTenantOverride(tenantCode, configPath string) (bool, error)
 }
 
 func (h *handler) configuration(writer http.ResponseWriter, request *http.Request) {
@@ -267,6 +300,129 @@ func (h *handler) writeJSONView(writer http.ResponseWriter, status int, view *fa
 	if err := view.WriteJSON(writer); err != nil {
 		h.logger.Error("fastconf: api encode response", "error", err)
 	}
+}
+
+func cutTenantOverride(remainder string) (string, string, bool) {
+	code, rawPath, ok := strings.Cut(remainder, "/config/")
+	if !ok || code == "" || rawPath == "" {
+		return "", "", false
+	}
+	return code, rawPath, true
+}
+
+func (h *handler) setOverride(writer http.ResponseWriter, request *http.Request, tenantCode, rawPath string) {
+	if !h.requireWriteToken(writer) {
+		return
+	}
+	source, ok := h.source.(overrideSource)
+	if !ok {
+		h.writeError(writer, http.StatusNotImplemented, "runtime overrides are not supported by this configuration source")
+		return
+	}
+	configPath := strings.ReplaceAll(rawPath, "/", ".")
+	if configPath == "" {
+		h.writeError(writer, http.StatusBadRequest, "empty configuration path")
+		return
+	}
+	value, ok := h.decodeOverrideValue(writer, request)
+	if !ok {
+		return
+	}
+	var err error
+	if tenantCode == "" {
+		err = source.SetOverride(configPath, value)
+	} else {
+		err = source.SetTenantOverride(tenantCode, configPath, value)
+	}
+	if err != nil {
+		h.writeOverrideError(writer, err)
+		return
+	}
+	response := map[string]any{"path": configPath, "value": value}
+	if tenantCode != "" {
+		response["tenant"] = tenantCode
+	}
+	h.writeJSON(writer, http.StatusOK, response)
+}
+
+func (h *handler) deleteOverride(writer http.ResponseWriter, _ *http.Request, tenantCode, rawPath string) {
+	if !h.requireWriteToken(writer) {
+		return
+	}
+	source, ok := h.source.(overrideSource)
+	if !ok {
+		h.writeError(writer, http.StatusNotImplemented, "runtime overrides are not supported by this configuration source")
+		return
+	}
+	configPath := strings.ReplaceAll(rawPath, "/", ".")
+	if configPath == "" {
+		h.writeError(writer, http.StatusBadRequest, "empty configuration path")
+		return
+	}
+	var removed bool
+	var err error
+	if tenantCode == "" {
+		removed, err = source.DeleteOverride(configPath)
+	} else {
+		removed, err = source.DeleteTenantOverride(tenantCode, configPath)
+	}
+	if err != nil {
+		h.writeOverrideError(writer, err)
+		return
+	}
+	if !removed {
+		h.writeError(writer, http.StatusNotFound, "override not found")
+		return
+	}
+	response := map[string]any{"status": "deleted", "path": configPath}
+	if tenantCode != "" {
+		response["tenant"] = tenantCode
+	}
+	h.writeJSON(writer, http.StatusOK, response)
+}
+
+func (h *handler) decodeOverrideValue(writer http.ResponseWriter, request *http.Request) (any, bool) {
+	request.Body = http.MaxBytesReader(writer, request.Body, 1<<20)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var payload struct {
+		Value json.RawMessage `json:"value"`
+	}
+	if err := decoder.Decode(&payload); err != nil {
+		h.writeError(writer, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return nil, false
+	}
+	if len(payload.Value) == 0 {
+		h.writeError(writer, http.StatusBadRequest, `body must contain a "value" field`)
+		return nil, false
+	}
+	var value any
+	if err := json.Unmarshal(payload.Value, &value); err != nil {
+		h.writeError(writer, http.StatusBadRequest, `invalid "value" field: `+err.Error())
+		return nil, false
+	}
+	return value, true
+}
+
+func (h *handler) requireWriteToken(writer http.ResponseWriter) bool {
+	if h.token != "" {
+		return true
+	}
+	h.writeError(writer, http.StatusForbidden, "configuration mutations require an authentication token")
+	return false
+}
+
+func (h *handler) writeOverrideError(writer http.ResponseWriter, err error) {
+	if errors.Is(err, fastconf.ErrClosed) {
+		h.writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.writeError(writer, http.StatusBadRequest, err.Error())
+}
+
+func (h *handler) methodNotAllowed(writer http.ResponseWriter, methods ...string) {
+	writer.Header().Set("Allow", strings.Join(methods, ", "))
+	h.writeError(writer, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 func (h *handler) writeJSON(writer http.ResponseWriter, status int, value any) {

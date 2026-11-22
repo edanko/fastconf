@@ -129,6 +129,34 @@ func SetFold(values map[string]any, path []string, value any) error {
 	return nil
 }
 
+// SetFoldForce is SetFold but replaces non-object intermediate values with
+// objects instead of failing. Runtime overrides use it because an override is
+// expected to win over a conflicting scalar.
+func SetFoldForce(values map[string]any, path []string, value any) error {
+	if len(path) == 0 {
+		return errEmptyPath
+	}
+	current := values
+	for _, key := range path[:len(path)-1] {
+		next, ok := getFold(current, key)
+		if ok {
+			if child, isObject := next.(map[string]any); isObject {
+				current = child
+				continue
+			}
+		}
+		child := make(map[string]any, 4)
+		if storedKey, _, exists := getFoldKey(current, key); exists {
+			current[storedKey] = child
+		} else {
+			current[key] = child
+		}
+		current = child
+	}
+	setFold(current, path[len(path)-1], value)
+	return nil
+}
+
 // Delete removes path from values and returns the removed value.
 func Delete(values map[string]any, path []string) (any, bool) {
 	if len(path) == 0 {
@@ -152,6 +180,32 @@ func Delete(values map[string]any, path []string) (any, bool) {
 		return nil, false
 	}
 	delete(current, key)
+	return value, true
+}
+
+// DeleteFold removes path from values with case-insensitive key matching and
+// returns the removed value.
+func DeleteFold(values map[string]any, path []string) (any, bool) {
+	if len(path) == 0 {
+		return nil, false
+	}
+	current := values
+	for _, key := range path[:len(path)-1] {
+		next, ok := getFold(current, key)
+		if !ok {
+			return nil, false
+		}
+		child, ok := next.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current = child
+	}
+	storedKey, value, ok := getFoldKey(current, path[len(path)-1])
+	if !ok {
+		return nil, false
+	}
+	delete(current, storedKey)
 	return value, true
 }
 
@@ -237,15 +291,22 @@ func deepCopyList(values []any) []any {
 }
 
 func getFold(values map[string]any, key string) (any, bool) {
+	_, value, ok := getFoldKey(values, key)
+	return value, ok
+}
+
+// getFoldKey returns the stored key and value matching key case-insensitively.
+// An exact match wins over a folded one.
+func getFoldKey(values map[string]any, key string) (string, any, bool) {
 	if value, ok := values[key]; ok {
-		return value, true
+		return key, value, true
 	}
 	for candidate, value := range values {
 		if strings.EqualFold(candidate, key) {
-			return value, true
+			return candidate, value, true
 		}
 	}
-	return nil, false
+	return "", nil, false
 }
 
 func setFold(values map[string]any, key string, value any) {

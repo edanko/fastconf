@@ -33,13 +33,17 @@ type Loader struct {
 	decoder     *decode.Decoder
 	logger      *slog.Logger
 
-	snapshot   atomic.Pointer[snapshot]
-	loadMutex  sync.Mutex
-	flights    singleflight.Group
-	remoteMu   sync.Mutex
-	remote     layers.Layer
-	remoteDone bool
-	closed     atomic.Bool
+	snapshot  atomic.Pointer[snapshot]
+	loadMutex sync.Mutex
+
+	overridesMutex  sync.RWMutex
+	overrides       map[string]overrideEntry
+	tenantOverrides map[string]map[string]overrideEntry
+	flights         singleflight.Group
+	remoteMu        sync.Mutex
+	remote          layers.Layer
+	remoteDone      bool
+	closed          atomic.Bool
 }
 
 // New creates a configuration loader.
@@ -229,7 +233,7 @@ func (l *Loader) loadSnapshot(ctx context.Context) (*snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	current := newSnapshot(document)
+	current := l.buildSnapshot(document, true)
 	l.snapshot.Store(current)
 	return current, nil
 }
@@ -250,7 +254,7 @@ func (l *Loader) reload(ctx context.Context) error {
 		}
 		return err
 	}
-	l.snapshot.Store(newSnapshot(document))
+	l.snapshot.Store(l.buildSnapshot(document, true))
 	if l.logger != nil {
 		l.logger.DebugContext(ctx, "fastconf: configuration reloaded", "duration", time.Since(started))
 	}

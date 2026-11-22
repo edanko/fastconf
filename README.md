@@ -24,6 +24,8 @@ decodes the result into Go structs.
 - **Remote configuration** — retries with exponential backoff, bearer/basic/
   OAuth2 client-credentials/HMAC authentication, conditional requests, stale
   disk cache fallback and asynchronous debounced refresh.
+- **Runtime overrides** — set or delete values in memory at runtime; they win
+  over sources, survive `Reload`, and apply to the root or a single tenant.
 - **Consistent zero-copy views** — `Loader.View` pins one immutable snapshot;
   typed reads are allocation-free and struct decoding does not copy data.
 - **Coalesced loading** — concurrent decodes and reloads share one in-flight
@@ -232,6 +234,44 @@ map of the whole scope is required.
 | `tenantView.Decode(&cfg)` | 142 ns | 1 |
 | `loader.Get(ctx, "tenants.tenant1.domain")` | 46 ns | 1 |
 
+## Runtime overrides
+
+Values can be added or changed at runtime without restarting the process:
+
+```go
+err := loader.SetOverride("features.newBilling", true)
+err = loader.SetTenantOverride("acme", "database.host", "acme-db.internal")
+
+removed, err := loader.DeleteOverride("features.newBilling")
+removed, err = loader.DeleteTenantOverride("acme", "database.host")
+```
+
+An override takes precedence over every source and is applied after
+placeholders are resolved, so the value is used literally. Global overrides
+apply to the root and to every tenant; tenant overrides affect one tenant.
+Paths are dot-separated and matched case-insensitively. Overrides are in
+memory: they survive `Reload` but not a restart, and a tenant that does not
+exist yet keeps its override until a reload introduces it. `Decode`, `Get`,
+`View`, `Map` and `TenantMap` all see the same values.
+
+The bundled server exposes overrides when a token is configured:
+
+```bash
+curl -X PUT http://127.0.0.1:8080/v1/config/features.newBilling \
+  -H 'Authorization: Bearer secret' \
+  -d '{"value": true}'
+
+curl -X PUT http://127.0.0.1:8080/v1/tenants/acme/config/database.host \
+  -H 'Authorization: Bearer secret' \
+  -d '{"value": "acme-db.internal"}'
+
+curl -X DELETE http://127.0.0.1:8080/v1/config/features.newBilling \
+  -H 'Authorization: Bearer secret'
+```
+
+Mutation endpoints require `-token`/`FASTCONF_SERVER_TOKEN`; without a token
+they return `403` so an unauthenticated server cannot be reconfigured.
+
 ## Remote configuration
 
 ```yaml
@@ -314,8 +354,12 @@ configuration fails fast. Endpoints:
 | GET | `/healthz` | health probe |
 | GET | `/v1/config` | configuration root as JSON |
 | GET | `/v1/config/database/host` | value lookup by slash-separated path |
+| PUT | `/v1/config/database/host` | set a runtime override (`{"value": ...}`) |
+| DELETE | `/v1/config/database/host` | delete a runtime override |
 | GET | `/v1/tenants` | tenant codes |
 | GET | `/v1/tenants/acme` | one tenant configuration |
+| PUT | `/v1/tenants/acme/config/domain` | set a tenant runtime override |
+| DELETE | `/v1/tenants/acme/config/domain` | delete a tenant runtime override |
 | POST | `/v1/reload` | reload configuration |
 
 ```bash
@@ -329,7 +373,9 @@ logging goes to standard error.
 The server binds to loopback by default because configuration may contain
 secrets. It listens on all interfaces only when `-listen` asks for it. Set
 `-token` or `FASTCONF_SERVER_TOKEN` to require
-`Authorization: Bearer <token>` on every request.
+`Authorization: Bearer <token>` on every request. Runtime override endpoints
+return `403` when no token is configured, so mutations always require
+authentication.
 
 ## Custom sources
 
