@@ -2,6 +2,7 @@ package fastconf
 
 import (
 	"fmt"
+	stdmaps "maps"
 	"slices"
 	"strings"
 
@@ -151,82 +152,132 @@ func (l *Loader) updateOverride(tenantCode string, segments []string, value any,
 		if base == nil {
 			base = current.document
 		}
-		l.snapshot.Store(l.buildSnapshot(base, false))
+		l.snapshot.Store(l.buildSnapshot(base))
 	}
 	return true, nil
 }
 
-// buildSnapshot applies the current overrides. document is either owned by the
-// caller (a fresh load, which is mutated in place and copied once for the
-// pristine document) or a published snapshot document that must not be mutated
-// (rebuilds copy it and keep it as the pristine base).
-func (l *Loader) buildSnapshot(document map[string]any, owned bool) *snapshot {
+// buildSnapshot applies the current overrides to a copy-on-write view of base.
+// The base document stays pristine and immutable; only maps along override
+// paths are copied, so untouched tenants and subtrees are shared between the
+// pristine document and the published snapshot.
+func (l *Loader) buildSnapshot(base map[string]any) *snapshot {
 	l.overridesMutex.RLock()
 	hasOverrides := len(l.overrides) > 0 || len(l.tenantOverrides) > 0
 	overrides := l.overrides
 	tenantOverrides := l.tenantOverrides
 	l.overridesMutex.RUnlock()
 	if !hasOverrides {
-		return newSnapshot(document)
+		return newSnapshot(base)
 	}
-
-	var applied map[string]any
-	var pristine map[string]any
-	if owned {
-		pristine = maps.DeepCopyMap(document)
-		applied = document
-	} else {
-		pristine = document
-		applied = maps.DeepCopyMap(document)
-	}
-	applyOverrides(applied, overrides, tenantOverrides)
-	current := newSnapshot(applied)
-	current.pristine = pristine
+	current := newSnapshot(applyOverridesCopy(base, overrides, tenantOverrides))
+	current.pristine = base
 	return current
 }
 
-// applyOverrides writes every override into the root and tenant objects. A
-// global override is copied into each tenant so tenants remain independent.
-func applyOverrides(document map[string]any, overrides map[string]overrideEntry, tenantOverrides map[string]map[string]overrideEntry) {
-	root, ok := hierarchy.Config(document)
+// applyOverridesCopy returns a document with the overrides applied. Every map
+// that changes is shallow-cloned before it is modified; all other maps are
+// shared with base, which is never mutated. Override values themselves are
+// immutable and may be shared by every tenant.
+func applyOverridesCopy(base map[string]any, overrides map[string]overrideEntry, tenantOverrides map[string]map[string]overrideEntry) map[string]any {
+	applied := stdmaps.Clone(base)
+	root, ok := hierarchy.Config(applied)
 	if !ok {
-		return
+		return applied
 	}
-	tenants, _ := maps.GetMap(root, []string{sections.Tenants})
-	for _, entry := range overrides {
-		_ = maps.SetFoldForce(root, entry.segments, maps.DeepCopy(entry.value))
-		for _, rawTenant := range tenants {
-			tenant, ok := rawTenant.(map[string]any)
-			if !ok {
-				continue
-			}
-			_ = maps.SetFoldForce(tenant, entry.segments, maps.DeepCopy(entry.value))
+	rootCopy := stdmaps.Clone(root)
+	applied[sections.Root] = rootCopy
+
+	rawTenants, hasTenants := root[sections.Tenants].(map[string]any)
+	if !hasTenants {
+		for _, entry := range overrides {
+			setPathCopy(rootCopy, entry.segments, entry.value)
 		}
+		return applied
 	}
-	for tenantKey, values := range tenantOverrides {
-		tenant := findTenant(tenants, tenantKey)
-		if tenant == nil {
+
+	tenantsCopy := stdmaps.Clone(rawTenants)
+	rootCopy[sections.Tenants] = tenantsCopy
+	index := tenantOverridesByCode(tenantOverrides)
+	for code, rawTenant := range rawTenants {
+		tenant, ok := rawTenant.(map[string]any)
+		if !ok {
 			continue
 		}
-		for _, entry := range values {
-			_ = maps.SetFoldForce(tenant, entry.segments, maps.DeepCopy(entry.value))
+		entries := index[strings.ToLower(code)]
+		if len(overrides) == 0 && len(entries) == 0 {
+			continue
 		}
+		tenantCopy := stdmaps.Clone(tenant)
+		for _, entry := range overrides {
+			setPathCopy(tenantCopy, entry.segments, entry.value)
+		}
+		for _, entry := range entries {
+			setPathCopy(tenantCopy, entry.segments, entry.value)
+		}
+		tenantsCopy[code] = tenantCopy
 	}
+	for _, entry := range overrides {
+		setPathCopy(rootCopy, entry.segments, entry.value)
+	}
+	return applied
 }
 
-func findTenant(tenants map[string]any, tenantKey string) map[string]any {
-	if raw, ok := tenants[tenantKey]; ok {
-		if tenant, ok := raw.(map[string]any); ok {
-			return tenant
+// setPathCopy sets a value in object, cloning every map it descends through so
+// shared maps from the pristine document are never mutated.
+func setPathCopy(object map[string]any, segments []string, value any) {
+	if len(segments) == 0 {
+		return
+	}
+	current := object
+	for _, segment := range segments[:len(segments)-1] {
+		storedKey, child, found := lookupFold(current, segment)
+		if found {
+			if childObject, ok := child.(map[string]any); ok {
+				cloned := stdmaps.Clone(childObject)
+				current[storedKey] = cloned
+				current = cloned
+				continue
+			}
+			childObject := make(map[string]any, 4)
+			current[storedKey] = childObject
+			current = childObject
+			continue
+		}
+		childObject := make(map[string]any, 4)
+		current[segment] = childObject
+		current = childObject
+	}
+	last := segments[len(segments)-1]
+	if storedKey, _, found := lookupFold(current, last); found {
+		current[storedKey] = value
+		return
+	}
+	current[last] = value
+}
+
+func lookupFold(object map[string]any, key string) (string, any, bool) {
+	if value, ok := object[key]; ok {
+		return key, value, true
+	}
+	for candidate, value := range object {
+		if strings.EqualFold(candidate, key) {
+			return candidate, value, true
 		}
 	}
-	for code, raw := range tenants {
-		if strings.EqualFold(code, tenantKey) {
-			tenant, _ := raw.(map[string]any)
-			return tenant
+	return "", nil, false
+}
+
+func tenantOverridesByCode(tenantOverrides map[string]map[string]overrideEntry) map[string][]overrideEntry {
+	index := make(map[string][]overrideEntry, len(tenantOverrides))
+	for code, values := range tenantOverrides {
+		entries := make([]overrideEntry, 0, len(values))
+		for _, entry := range values {
+			entries = append(entries, entry)
 		}
+		index[code] = entries
 	}
-	return nil
+	return index
 }
 
 func overrideSegments(configPath string) ([]string, error) {

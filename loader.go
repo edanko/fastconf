@@ -233,7 +233,7 @@ func (l *Loader) loadSnapshot(ctx context.Context) (*snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	current := l.buildSnapshot(document, true)
+	current := l.buildSnapshot(document)
 	l.snapshot.Store(current)
 	return current, nil
 }
@@ -254,7 +254,7 @@ func (l *Loader) reload(ctx context.Context) error {
 		}
 		return err
 	}
-	l.snapshot.Store(l.buildSnapshot(document, true))
+	l.snapshot.Store(l.buildSnapshot(document))
 	if l.logger != nil {
 		l.logger.DebugContext(ctx, "fastconf: configuration reloaded", "duration", time.Since(started))
 	}

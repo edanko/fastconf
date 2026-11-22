@@ -77,6 +77,24 @@ Load pipeline and HTTP API:
 | `ConfigEndpoint` (`/v1/config`) | 434 µs | 217 KB | 29 |
 | `TenantEndpoint` (`/v1/tenants/{code}`) | 1.33 µs | 1.6 KB | 24 |
 
+Runtime overrides rebuild the snapshot copy-on-write: only maps along override
+paths are cloned and the rest of the pristine document is shared, so a
+published snapshot is never mutated and memory does not double.
+
+| Benchmark | time/op | bytes/op | allocs/op |
+| --- | ---: | ---: | ---: |
+| `SetOverride` (global, 1001 tenants) | 337 µs | 827 KB | 4,027 |
+| `SetTenantOverride` (one tenant) | 115 µs | 155 KB | 26 |
+| `DeleteOverride` (last override) | 92 µs | 71 KB | 11 |
+
+A global override clones every tenant map because each tenant receives the
+value; a tenant-scoped override clones one tenant and shares the other 1000.
+Deleting the last override republishes the pristine snapshot without copying.
+Mutations are administrative operations: decoding after an override costs the
+same as before (+3%), while `Map` grows with the extra returned data
+(357 µs vs 249 µs with one global override). Setting N overrides one by one
+performs N rebuilds.
+
 Expression resolution (`internal/expr`):
 
 | Benchmark | time/op | bytes/op | allocs/op |

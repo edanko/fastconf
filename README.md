@@ -254,6 +254,11 @@ memory: they survive `Reload` but not a restart, and a tenant that does not
 exist yet keeps its override until a reload introduces it. `Decode`, `Get`,
 `View`, `Map` and `TenantMap` all see the same values.
 
+Mutations rebuild the snapshot copy-on-write: a tenant override clones only
+that tenant (about 0.1 ms for 1000 tenants), a global override clones every
+tenant (about 0.35 ms), and deleting the last override republishes the pristine
+snapshot. Reads against the previous snapshot are unaffected.
+
 The bundled server exposes overrides when a token is configured:
 
 ```bash
