@@ -255,6 +255,45 @@ refresher.Refresh(ctx, nil, func(err error) {
 `Loader.Reload(ctx)` performs a synchronous reload and atomically replaces the
 snapshot.
 
+## Configuration API server
+
+A standalone server is included in [`cmd/fastconf-server`](cmd/fastconf-server/main.go):
+
+```bash
+go build -o bin/fastconf-server ./cmd/fastconf-server
+
+./bin/fastconf-server \
+  -config_path /etc/billing \
+  -subsystem payments \
+  -environment production \
+  -listen 127.0.0.1:8080
+```
+
+The server loads configuration before binding its listener, so a broken
+configuration fails fast. Endpoints:
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/healthz` | health probe |
+| GET | `/v1/config` | configuration root as JSON |
+| GET | `/v1/config/database/host` | value lookup by slash-separated path |
+| GET | `/v1/tenants` | tenant codes |
+| GET | `/v1/tenants/acme` | one tenant configuration |
+| POST | `/v1/reload` | reload configuration |
+
+```bash
+curl -s http://127.0.0.1:8080/v1/config/database/host
+# {"path":"database.host","value":"localhost"}
+```
+
+Send `SIGHUP` to reload configuration without dropping connections. Request
+logging goes to standard error.
+
+The server binds to loopback by default because configuration may contain
+secrets. It listens on all interfaces only when `-listen` asks for it. Set
+`-token` or `FASTCONF_SERVER_TOKEN` to require
+`Authorization: Bearer <token>` on every request.
+
 ## Custom sources
 
 ```go

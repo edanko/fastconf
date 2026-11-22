@@ -1,6 +1,9 @@
-.PHONY: all test race vet fmt lint bench cover tidy
+.PHONY: all build test race vet fmt lint bench cover tidy
 
-all: fmt vet test
+all: fmt vet test build
+
+build:
+	go build -o bin/fastconf-server ./cmd/fastconf-server
 
 test:
 	go test ./...

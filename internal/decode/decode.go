@@ -353,7 +353,7 @@ func (d *Decoder) decodeReflectSlice(src reflect.Value, dst reflect.Value, path 
 		if length != typ.Len() {
 			return path.errorf("cannot decode %s with %d elements into %s", src.Type(), length, typ)
 		}
-		for i := 0; i < length; i++ {
+		for i := range length {
 			path.pushIndex(i)
 			err := d.decode(fromReflect(src.Index(i)), dst.Index(i), true, path)
 			path.pop()
@@ -365,7 +365,7 @@ func (d *Decoder) decodeReflectSlice(src reflect.Value, dst reflect.Value, path 
 	}
 
 	out := reflect.MakeSlice(typ, length, length)
-	for i := 0; i < length; i++ {
+	for i := range length {
 		path.pushIndex(i)
 		err := d.decode(fromReflect(src.Index(i)), out.Index(i), true, path)
 		path.pop()
@@ -634,7 +634,7 @@ func (d *Decoder) setBytes(dst reflect.Value, data []byte) {
 	dst.Set(out)
 }
 
-var byteSliceType = reflect.TypeOf([]byte(nil))
+var byteSliceType = reflect.TypeFor[[]byte]()
 
 // fromReflect converts a reflected value into a configuration value without
 // deep-copying containers.
@@ -665,7 +665,7 @@ func fromReflect(src reflect.Value) value.Value {
 	case reflect.Slice, reflect.Array:
 		length := src.Len()
 		items := make([]value.Value, length)
-		for i := 0; i < length; i++ {
+		for i := range length {
 			items[i] = fromReflect(src.Index(i))
 		}
 		return value.List(items)

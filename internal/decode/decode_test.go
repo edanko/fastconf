@@ -656,7 +656,7 @@ type level int
 
 func TestHookConversion(t *testing.T) {
 	toLevel := func(from, to reflect.Type, data any) (any, error) {
-		if to != reflect.TypeOf(level(0)) || from.Kind() != reflect.String {
+		if to != reflect.TypeFor[level]() || from.Kind() != reflect.String {
 			return data, nil
 		}
 		switch data {
@@ -688,7 +688,7 @@ func TestHookConversion(t *testing.T) {
 
 func TestHookNilAssignsZero(t *testing.T) {
 	clearHook := func(from, to reflect.Type, data any) (any, error) {
-		if to == reflect.TypeOf(0) && from.Kind() == reflect.String {
+		if to == reflect.TypeFor[int]() && from.Kind() == reflect.String {
 			return nil, nil
 		}
 		return data, nil
@@ -750,7 +750,7 @@ func TestHookComposeDefault(t *testing.T) {
 
 func TestHookNotAppliedToAny(t *testing.T) {
 	toTime := func(from, to reflect.Type, data any) (any, error) {
-		if to == reflect.TypeOf(time.Time{}) && from.Kind() == reflect.String {
+		if to == reflect.TypeFor[time.Time]() && from.Kind() == reflect.String {
 			parsed, err := time.Parse(time.RFC3339, data.(string))
 			if err != nil {
 				return nil, err
@@ -1011,11 +1011,9 @@ func TestConcurrentDecode(t *testing.T) {
 
 	var wg sync.WaitGroup
 	errs := make(chan error, 16)
-	for worker := 0; worker < 16; worker++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 50; i++ {
+	for range 16 {
+		wg.Go(func() {
+			for range 50 {
 				var got config
 				if err := decoder.Decode(src, &got); err != nil {
 					errs <- err
@@ -1026,7 +1024,7 @@ func TestConcurrentDecode(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -1042,7 +1040,7 @@ func TestParallelSubtestsShareDecoder(t *testing.T) {
 	}
 	decoder := decode.New(decode.Config{WeaklyTyped: true})
 
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {
 			t.Parallel()
 			var got config

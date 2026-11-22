@@ -5,6 +5,9 @@
 bench.txt
 coverage.out
 
+# Build output
+bin/
+
 # Local tooling
 .idea/
 .vscode/

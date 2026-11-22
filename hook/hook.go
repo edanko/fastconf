@@ -30,11 +30,11 @@ import (
 type Func func(from, to reflect.Type, data any) (any, error)
 
 var (
-	durationType        = reflect.TypeOf(time.Duration(0))
-	timeType            = reflect.TypeOf(time.Time{})
-	urlType             = reflect.TypeOf(url.URL{})
-	urlPointerType      = reflect.TypeOf((*url.URL)(nil))
-	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+	durationType        = reflect.TypeFor[time.Duration]()
+	timeType            = reflect.TypeFor[time.Time]()
+	urlType             = reflect.TypeFor[url.URL]()
+	urlPointerType      = reflect.TypeFor[*url.URL]()
+	textUnmarshalerType = reflect.TypeFor[encoding.TextUnmarshaler]()
 )
 
 // defaultTimeLayouts are the layouts tried by StringToTime when no explicit
@@ -173,7 +173,7 @@ func StringToSlice(separator string) Func {
 					text, to, length, to.Len())
 			}
 			array := reflect.New(to).Elem()
-			for i := 0; i < length; i++ {
+			for i := range length {
 				elem, err := convertPart(parts[i], elemType)
 				if err != nil {
 					return nil, err
@@ -184,7 +184,7 @@ func StringToSlice(separator string) Func {
 		}
 
 		slice := reflect.MakeSlice(to, length, length)
-		for i := 0; i < length; i++ {
+		for i := range length {
 			elem, err := convertPart(parts[i], elemType)
 			if err != nil {
 				return nil, err

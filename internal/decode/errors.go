@@ -173,8 +173,7 @@ func (p *pathStack) wrap(err error) error {
 	if err == nil {
 		return nil
 	}
-	var existing *decodeError
-	if errors.As(err, &existing) {
+	if _, ok := errors.AsType[*decodeError](err); ok {
 		return err
 	}
 	return &decodeError{path: p.String(), err: err}

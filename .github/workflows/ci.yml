@@ -30,8 +30,10 @@ jobs:
       - name: Test
         run: go test ./... -race -shuffle=on -count=1
 
-      - name: Build examples
-        run: go build ./examples/...
+      - name: Build examples and commands
+        run: |
+          go build ./examples/...
+          go build ./cmd/...
 
       - name: Benchmark smoke test
         run: go test ./... -run '^$' -bench . -benchmem -benchtime=50ms

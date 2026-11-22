@@ -175,16 +175,14 @@ func TestOAuth2SingleFlight(t *testing.T) {
 	tokens := make(chan string, workers)
 	errors := make(chan error, workers)
 	for range workers {
-		waitGroup.Add(1)
-		go func() {
-			defer waitGroup.Done()
+		waitGroup.Go(func() {
 			request := httptest.NewRequest(http.MethodGet, "http://example.com/config", nil)
 			if err := authenticator.Apply(request); err != nil {
 				errors <- err
 				return
 			}
 			tokens <- request.Header.Get("Authorization")
-		}()
+		})
 	}
 
 	select {

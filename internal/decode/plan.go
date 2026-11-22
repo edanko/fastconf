@@ -156,9 +156,9 @@ func parseFieldTag(structField reflect.StructField, tags []string) (string, fiel
 		}
 		base := raw
 		hasComma := false
-		if comma := strings.IndexByte(raw, ','); comma >= 0 {
-			base, hasComma = raw[:comma], true
-			for _, option := range strings.Split(raw[comma+1:], ",") {
+		if before, after, ok := strings.Cut(raw, ","); ok {
+			base, hasComma = before, true
+			for option := range strings.SplitSeq(after, ",") {
 				switch option {
 				case "squash":
 					options.squash = true

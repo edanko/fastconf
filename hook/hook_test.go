@@ -27,7 +27,7 @@ func declined(fn hook.Func, to reflect.Type, data any) bool {
 
 func TestStringToTimeDuration(t *testing.T) {
 	fn := hook.StringToTimeDuration()
-	durationType := reflect.TypeOf(time.Duration(0))
+	durationType := reflect.TypeFor[time.Duration]()
 
 	out, err := apply(fn, durationType, "1h30m")
 	if err != nil {
@@ -37,7 +37,7 @@ func TestStringToTimeDuration(t *testing.T) {
 		t.Fatalf("out = %v", out)
 	}
 
-	if !declined(fn, reflect.TypeOf(0), "5") {
+	if !declined(fn, reflect.TypeFor[int](), "5") {
 		t.Fatal("hook should decline non-duration destinations")
 	}
 	if !declined(fn, durationType, 5) {
@@ -50,7 +50,7 @@ func TestStringToTimeDuration(t *testing.T) {
 }
 
 func TestStringToTime(t *testing.T) {
-	timeType := reflect.TypeOf(time.Time{})
+	timeType := reflect.TypeFor[time.Time]()
 
 	out, err := apply(hook.StringToTime(), timeType, "2024-05-06T07:08:09Z")
 	if err != nil {
@@ -84,14 +84,14 @@ func TestStringToTime(t *testing.T) {
 		t.Fatalf("error %v does not list the accepted layout", err)
 	}
 
-	if !declined(hook.StringToTime(), reflect.TypeOf(""), "text") {
+	if !declined(hook.StringToTime(), reflect.TypeFor[string](), "text") {
 		t.Fatal("hook should decline non-time destinations")
 	}
 }
 
 func TestStringToURL(t *testing.T) {
-	urlType := reflect.TypeOf(url.URL{})
-	urlPointerType := reflect.TypeOf((*url.URL)(nil))
+	urlType := reflect.TypeFor[url.URL]()
+	urlPointerType := reflect.TypeFor[*url.URL]()
 
 	out, err := apply(hook.StringToURL(), urlType, "https://example.test/path?q=1")
 	if err != nil {
@@ -113,7 +113,7 @@ func TestStringToURL(t *testing.T) {
 	if _, err := apply(hook.StringToURL(), urlType, "http://[::1"); err == nil {
 		t.Fatal("expected a parse error")
 	}
-	if !declined(hook.StringToURL(), reflect.TypeOf(0), "x") {
+	if !declined(hook.StringToURL(), reflect.TypeFor[int](), "x") {
 		t.Fatal("hook should decline non-URL destinations")
 	}
 }
@@ -128,44 +128,44 @@ func TestStringToSlice(t *testing.T) {
 	}{
 		{
 			name: "default separator",
-			to:   reflect.TypeOf([]string(nil)),
+			to:   reflect.TypeFor[[]string](),
 			data: "a, b,c",
 			want: []string{"a", "b", "c"},
 		},
 		{
 			name:      "custom separator",
 			separator: "|",
-			to:        reflect.TypeOf([]string(nil)),
+			to:        reflect.TypeFor[[]string](),
 			data:      "a|b",
 			want:      []string{"a", "b"},
 		},
 		{
 			name: "integers",
-			to:   reflect.TypeOf([]int(nil)),
+			to:   reflect.TypeFor[[]int](),
 			data: "1, 2,3",
 			want: []int{1, 2, 3},
 		},
 		{
 			name: "booleans",
-			to:   reflect.TypeOf([]bool(nil)),
+			to:   reflect.TypeFor[[]bool](),
 			data: "true,false",
 			want: []bool{true, false},
 		},
 		{
 			name: "floats",
-			to:   reflect.TypeOf([]float64(nil)),
+			to:   reflect.TypeFor[[]float64](),
 			data: "1.5,2",
 			want: []float64{1.5, 2},
 		},
 		{
 			name: "durations",
-			to:   reflect.TypeOf([]time.Duration(nil)),
+			to:   reflect.TypeFor[[]time.Duration](),
 			data: "1s,2m",
 			want: []time.Duration{time.Second, 2 * time.Minute},
 		},
 		{
 			name: "times",
-			to:   reflect.TypeOf([]time.Time(nil)),
+			to:   reflect.TypeFor[[]time.Time](),
 			data: "2024-05-06,2025-01-02",
 			want: []time.Time{
 				time.Date(2024, time.May, 6, 0, 0, 0, 0, time.UTC),
@@ -174,19 +174,19 @@ func TestStringToSlice(t *testing.T) {
 		},
 		{
 			name: "any",
-			to:   reflect.TypeOf([]any(nil)),
+			to:   reflect.TypeFor[[]any](),
 			data: "x,y",
 			want: []any{"x", "y"},
 		},
 		{
 			name: "array",
-			to:   reflect.TypeOf([2]int{}),
+			to:   reflect.TypeFor[[2]int](),
 			data: "7,8",
 			want: [2]int{7, 8},
 		},
 		{
 			name: "empty string",
-			to:   reflect.TypeOf([]string(nil)),
+			to:   reflect.TypeFor[[]string](),
 			data: "",
 			want: []string{},
 		},
@@ -205,16 +205,16 @@ func TestStringToSlice(t *testing.T) {
 	}
 
 	fn := hook.StringToSlice(",")
-	if !declined(fn, reflect.TypeOf(""), "a,b") {
+	if !declined(fn, reflect.TypeFor[string](), "a,b") {
 		t.Fatal("hook should decline non-container destinations")
 	}
-	if !declined(fn, reflect.TypeOf([]string(nil)), 5) {
+	if !declined(fn, reflect.TypeFor[[]string](), 5) {
 		t.Fatal("hook should decline non-string values")
 	}
-	if _, err := apply(fn, reflect.TypeOf([]int(nil)), "1,x"); err == nil {
+	if _, err := apply(fn, reflect.TypeFor[[]int](), "1,x"); err == nil {
 		t.Fatal("expected a conversion error")
 	}
-	if _, err := apply(fn, reflect.TypeOf([2]int{}), "1,2,3"); err == nil {
+	if _, err := apply(fn, reflect.TypeFor[[2]int](), "1,2,3"); err == nil {
 		t.Fatal("expected a length error")
 	}
 	if _, err := apply(fn, reflect.TypeOf([]struct{}{}), "a,b"); err == nil {
@@ -234,7 +234,7 @@ func TestComposeOrder(t *testing.T) {
 	}
 
 	composed := hook.Compose(first, second, nil)
-	if _, err := apply(composed, reflect.TypeOf(0), "x"); err != nil {
+	if _, err := apply(composed, reflect.TypeFor[int](), "x"); err != nil {
 		t.Fatalf("error = %v", err)
 	}
 	if !reflect.DeepEqual(order, []string{"first", "second"}) {
@@ -243,7 +243,7 @@ func TestComposeOrder(t *testing.T) {
 }
 
 func TestComposeStopsAtDestinationType(t *testing.T) {
-	durationType := reflect.TypeOf(time.Duration(0))
+	durationType := reflect.TypeFor[time.Duration]()
 	stop := func(from, to reflect.Type, data any) (any, error) {
 		return time.Second, nil
 	}
@@ -270,7 +270,7 @@ func TestComposeFeedsConvertedValue(t *testing.T) {
 	}
 	composed := hook.Compose(hookOne, hookTwo)
 
-	out, err := apply(composed, reflect.TypeOf(0), "abc")
+	out, err := apply(composed, reflect.TypeFor[int](), "abc")
 	if err != nil {
 		t.Fatalf("error = %v", err)
 	}
@@ -281,7 +281,7 @@ func TestComposeFeedsConvertedValue(t *testing.T) {
 
 func TestComposeNilHandling(t *testing.T) {
 	nothing := hook.Compose()
-	if !declined(nothing, reflect.TypeOf(""), "value") {
+	if !declined(nothing, reflect.TypeFor[string](), "value") {
 		t.Fatal("empty composition should keep the value")
 	}
 
@@ -290,7 +290,7 @@ func TestComposeNilHandling(t *testing.T) {
 		t.Fatal("composition should stop after a nil result")
 		return data, nil
 	}
-	out, err := apply(hook.Compose(clearAll, after), reflect.TypeOf(0), "value")
+	out, err := apply(hook.Compose(clearAll, after), reflect.TypeFor[int](), "value")
 	if err != nil {
 		t.Fatalf("error = %v", err)
 	}
@@ -303,7 +303,7 @@ func TestComposePropagatesErrors(t *testing.T) {
 	failing := func(from, to reflect.Type, data any) (any, error) {
 		return nil, errBoom
 	}
-	_, err := apply(hook.Compose(failing), reflect.TypeOf(0), "x")
+	_, err := apply(hook.Compose(failing), reflect.TypeFor[int](), "x")
 	if !errors.Is(err, errBoom) {
 		t.Fatalf("error = %v", err)
 	}
@@ -319,7 +319,7 @@ func TestDefault(t *testing.T) {
 	if hook.Default == nil {
 		t.Fatal("Default must not be nil")
 	}
-	durationType := reflect.TypeOf(time.Duration(0))
+	durationType := reflect.TypeFor[time.Duration]()
 	out, err := apply(hook.Default, durationType, "5s")
 	if err != nil {
 		t.Fatalf("error = %v", err)
@@ -328,7 +328,7 @@ func TestDefault(t *testing.T) {
 		t.Fatalf("duration = %v", out)
 	}
 
-	timeType := reflect.TypeOf(time.Time{})
+	timeType := reflect.TypeFor[time.Time]()
 	out, err = apply(hook.Default, timeType, "2024-01-02")
 	if err != nil {
 		t.Fatalf("error = %v", err)
@@ -337,7 +337,7 @@ func TestDefault(t *testing.T) {
 		t.Fatalf("time = %v", out)
 	}
 
-	urlType := reflect.TypeOf(url.URL{})
+	urlType := reflect.TypeFor[url.URL]()
 	out, err = apply(hook.Default, urlType, "https://example.test/")
 	if err != nil {
 		t.Fatalf("error = %v", err)
@@ -348,10 +348,10 @@ func TestDefault(t *testing.T) {
 }
 
 func TestDefaultDoesNotOverrideOtherTypes(t *testing.T) {
-	if !declined(hook.Default, reflect.TypeOf(0), "42") {
+	if !declined(hook.Default, reflect.TypeFor[int](), "42") {
 		t.Fatal("Default must not convert unrelated destinations")
 	}
-	if !declined(hook.Default, reflect.TypeOf(url.URL{}), 42) {
+	if !declined(hook.Default, reflect.TypeFor[url.URL](), 42) {
 		t.Fatal("Default must not convert unrelated sources")
 	}
 }

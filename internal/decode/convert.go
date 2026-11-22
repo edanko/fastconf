@@ -15,15 +15,15 @@ import (
 
 var (
 	boolType            = reflect.TypeOf(false)
-	int64Type           = reflect.TypeOf(int64(0))
-	float64Type         = reflect.TypeOf(float64(0))
-	stringType          = reflect.TypeOf("")
-	timeType            = reflect.TypeOf(time.Time{})
-	durationType        = reflect.TypeOf(time.Duration(0))
-	urlType             = reflect.TypeOf(url.URL{})
-	anySliceType        = reflect.TypeOf([]any(nil))
-	stringAnyMapType    = reflect.TypeOf(map[string]any(nil))
-	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+	int64Type           = reflect.TypeFor[int64]()
+	float64Type         = reflect.TypeFor[float64]()
+	stringType          = reflect.TypeFor[string]()
+	timeType            = reflect.TypeFor[time.Time]()
+	durationType        = reflect.TypeFor[time.Duration]()
+	urlType             = reflect.TypeFor[url.URL]()
+	anySliceType        = reflect.TypeFor[[]any]()
+	stringAnyMapType    = reflect.TypeFor[map[string]any]()
+	textUnmarshalerType = reflect.TypeFor[encoding.TextUnmarshaler]()
 )
 
 // timeLayouts are the string layouts accepted for time.Time values.

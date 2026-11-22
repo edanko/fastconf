@@ -12,6 +12,7 @@ package auth
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 )
 
@@ -91,9 +92,7 @@ func (h headerAuthenticator) Apply(request *http.Request) error {
 // authenticator.
 func Headers(headers map[string]string) Authenticator {
 	copied := make(map[string]string, len(headers))
-	for name, value := range headers {
-		copied[name] = value
-	}
+	maps.Copy(copied, headers)
 	return headersAuthenticator{headers: copied}
 }
 

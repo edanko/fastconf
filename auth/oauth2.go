@@ -239,13 +239,7 @@ type oauth2TokenResponse struct {
 // percent of its lifetime, kept between one and thirty seconds and always
 // smaller than the lifetime itself.
 func oauth2RefreshSkew(lifetime time.Duration) time.Duration {
-	skew := lifetime / 10
-	if skew < oauth2MinRefreshSkew {
-		skew = oauth2MinRefreshSkew
-	}
-	if skew > oauth2MaxRefreshSkew {
-		skew = oauth2MaxRefreshSkew
-	}
+	skew := min(max(lifetime/10, oauth2MinRefreshSkew), oauth2MaxRefreshSkew)
 	if skew >= lifetime {
 		skew = lifetime / 2
 	}

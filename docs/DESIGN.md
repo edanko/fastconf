@@ -35,6 +35,8 @@ expressions, and decodes the result into Go structs with low allocation cost.
 | `fastconf/retry` | Retry policy with exponential backoff |
 | `fastconf/auth` | HTTP authenticators (bearer, basic, OAuth2, HMAC) |
 | `fastconf/refresher` | Asynchronous debounced refresh |
+| `internal/configapi` | HTTP handler for the configuration API |
+| `cmd/fastconf-server` | Standalone configuration API server |
 | `internal/value` | Immutable value tree for fast decoding |
 | `internal/maps` | Nested `map[string]any` helpers |
 | `internal/doc` | Document normalization (`config` root) |
