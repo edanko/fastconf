@@ -73,6 +73,32 @@ func (l *Loader) SetTenantOverrides(tenantCode string, values map[string]any) er
 	return l.storeOverrideEntries(tenantCode, entries)
 }
 
+// Overrides returns a deep copy of the global runtime overrides, keyed by the
+// dot-separated path as first set (case-insensitive matching still applies).
+// It is intended for inspection surfaces such as the bundled server console.
+func (l *Loader) Overrides() map[string]any {
+	l.overridesMutex.RLock()
+	defer l.overridesMutex.RUnlock()
+	overrides := make(map[string]any, len(l.overrides))
+	for _, entry := range l.overrides {
+		overrides[strings.Join(entry.segments, ".")] = maps.DeepCopy(entry.value)
+	}
+	return overrides
+}
+
+// TenantOverrides returns a deep copy of the runtime overrides scoped to one
+// tenant, keyed by the path as first set.
+func (l *Loader) TenantOverrides(tenantCode string) map[string]any {
+	l.overridesMutex.RLock()
+	defer l.overridesMutex.RUnlock()
+	values := l.tenantOverrides[strings.ToLower(tenantCode)]
+	overrides := make(map[string]any, len(values))
+	for _, entry := range values {
+		overrides[strings.Join(entry.segments, ".")] = maps.DeepCopy(entry.value)
+	}
+	return overrides
+}
+
 // DeleteOverride removes a runtime override from the root path. It reports
 // whether an override existed; source-provided values are restored.
 func (l *Loader) DeleteOverride(configPath string) (bool, error) {

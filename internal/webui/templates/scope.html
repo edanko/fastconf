@@ -1,0 +1,71 @@
+{{define "scope"}}
+<div id="scope-refresh" hidden
+     hx-get="/ui/scope?tenant={{urlquery .Tenant}}"
+     hx-trigger="configChanged from:body"
+     hx-target="#workspace" hx-swap="innerHTML"></div>
+{{if .Swap}}<div id="tenant-list" hx-swap-oob="innerHTML">{{template "tenants" .}}</div>
+<strong id="crumb-scope" hx-swap-oob="true">{{if .Scope.IsTenant}}{{.Scope.Tenant}}{{else}}root{{end}}</strong>{{end}}
+
+<section class="fc-scope" aria-labelledby="scope-title">
+  <header class="fc-scope-head">
+    <div class="fc-scope-copy">
+      <p class="fc-eyebrow">{{.Scope.Eyebrow}}</p>
+      <h1 id="scope-title">{{.Scope.Title}}</h1>
+      <p class="fc-sub">{{.Scope.Subtitle}}</p>
+    </div>
+    <dl class="fc-stats">
+      <div><dt>keys</dt><dd>{{.Scope.KeyCount}}</dd></div>
+      <div><dt>tenants</dt><dd>{{.Scope.TenantCount}}</dd></div>
+      <div><dt>overrides</dt><dd>{{.Scope.OverrideCount}}</dd></div>
+    </dl>
+  </header>
+
+  <div class="fc-grid">
+    <section class="fc-panel fc-config" aria-labelledby="config-title">
+      <header class="fc-panel-head">
+        <div>
+          <h2 id="config-title">Configuration</h2>
+          <p class="fc-panel-sub">Every resolvable key in this scope. Values are read-only here.</p>
+        </div>
+        <label class="fc-key-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>
+          <span class="fc-visually-hidden">Filter keys and values</span>
+          <input id="key-filter" type="search" placeholder="Filter keys" autocomplete="off" spellcheck="false">
+        </label>
+      </header>
+      {{if .Scope.Rows}}
+      <div class="fc-table-wrap">
+        <table class="fc-table" id="config-table">
+          <thead>
+            <tr><th scope="col">Key</th><th scope="col">Value</th><th scope="col">Type</th></tr>
+          </thead>
+          <tbody>
+            {{range .Scope.Rows}}
+            <tr data-path="{{.Path}}" data-value="{{.Value}}">
+              <td class="fc-key" style="--depth: {{.Depth}}"><span class="fc-key-inner"><span class="fc-key-name">{{.Key}}</span></span></td>
+              <td class="fc-value mono">{{.Value}}</td>
+              <td class="fc-type"><span>{{.Type}}</span></td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      <footer class="fc-panel-foot">
+        <span id="row-count">Showing {{len .Scope.Rows}} of {{.Scope.Matched}} keys</span>
+        {{if gt .Scope.Matched (len .Scope.Rows)}}<span class="fc-muted-note">Table capped at {{len .Scope.Rows}} rows; filter to narrow it.</span>{{end}}
+      </footer>
+      {{else}}
+      <div class="fc-empty fc-empty--config">
+        <p>No keys match{{if .Scope.Filter}} “{{.Scope.Filter}}”{{end}}.</p>
+        <p class="fc-muted">Clear the filter to see the whole scope.</p>
+      </div>
+      {{end}}
+    </section>
+
+    <aside class="fc-panel fc-overrides" id="overrides-panel" aria-labelledby="overrides-title">
+      {{template "overrides" .}}
+    </aside>
+  </div>
+
+</section>
+{{end}}

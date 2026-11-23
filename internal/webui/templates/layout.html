@@ -1,0 +1,68 @@
+{{define "page"}}<!doctype html>
+<html lang="en" data-type="software" data-radius="sharp" data-buttons="solid">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fastconf console · {{.Scope.Title}}</title>
+<meta name="description" content="Runtime console for a fastconf configuration server.">
+<meta name="page-type" content="software">
+<meta name="site-kind" content="software">
+<link rel="icon" href="/ui/static/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#f3f0e9">
+<link rel="stylesheet" href="/ui/static/system.css">
+<link rel="stylesheet" href="/ui/static/app.css">
+<script src="/ui/static/htmx.min.js" defer></script>
+<script src="/ui/static/app.js" defer></script>
+</head>
+<body class="fc">
+<a class="fc-skip" href="#workspace">Skip to configuration</a>
+<aside class="fc-rail">
+  <a class="fc-brand" href="/ui/" hx-get="/ui/scope" hx-target="#workspace" hx-swap="innerHTML" hx-push-url="/ui/">
+    <span class="fc-brand-mark" aria-hidden="true">fc</span>
+    <span class="fc-brand-name">fastconf</span>
+    <span class="fc-brand-tag">console</span>
+  </a>
+
+  <div class="fc-rail-section">
+    <div class="fc-rail-head">
+      <span>Tenants</span>
+      <span class="fc-count">{{len .Codes}}</span>
+    </div>
+    <label class="fc-tenant-search">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>
+      <span class="fc-visually-hidden">Filter tenants</span>
+      <input id="tenant-filter" type="search" placeholder="Filter tenants" autocomplete="off" spellcheck="false">
+    </label>
+    <nav id="tenant-list" class="fc-tenant-list" aria-label="Tenants">
+      {{template "tenants" .}}
+    </nav>
+  </div>
+
+  <div class="fc-rail-foot">
+    <span class="fc-live"><span class="fc-live-dot" aria-hidden="true"></span>live</span>
+  </div>
+</aside>
+
+<main class="fc-main">
+  <header class="fc-topbar">
+    <div class="fc-crumb">
+      <span>configuration</span>
+      <span class="fc-crumb-sep" aria-hidden="true">/</span>
+      <strong id="crumb-scope">{{if .Scope.IsTenant}}{{.Scope.Tenant}}{{else}}root{{end}}</strong>
+    </div>
+    <div class="fc-topbar-actions">
+      <a class="btn btn--secondary btn--sm" href="/v1/config" target="_blank" rel="noopener">JSON API</a>
+      <button class="btn btn--secondary btn--sm" type="button"
+              hx-post="/ui/reload" hx-target="#toast" hx-swap="outerHTML">Reload</button>
+      <a class="btn btn--primary btn--sm" href="#override-form">Add override</a>
+    </div>
+  </header>
+
+  <div id="workspace" class="fc-workspace">
+    {{template "scope" .}}
+  </div>
+</main>
+
+<div id="toast" class="fc-toast" role="status" aria-live="polite"></div>
+</body>
+</html>{{end}}

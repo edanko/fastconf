@@ -297,6 +297,28 @@ curl -X PATCH http://127.0.0.1:8080/v1/tenants/acme/config \
 Mutation endpoints require `-token`/`FASTCONF_SERVER_TOKEN`; without a token
 they return `403` so an unauthenticated server cannot be reconfigured.
 
+## Web console
+
+`fastconf-server` also serves a small HTMX console at `/ui/` (disable it with
+`-ui=false`): tenant navigation, the resolved configuration tree with filtering,
+runtime overrides and an explicit reload. It uses the same loader and
+snapshot as the JSON API.
+
+```bash
+./bin/fastconf-server -config_path /etc/billing -listen 127.0.0.1:8080
+# open http://127.0.0.1:8080/ui/
+```
+
+When `-token` is set, the console requires HTTP Basic authentication with user
+`ui` and the token as the password; the JSON API continues to use
+`Authorization: Bearer <token>`. Console mutations require the `HX-Request`
+header (the template's HTMX requests send it) as a CSRF guard, and responses
+carry a strict Content-Security-Policy. The console binds wherever the server
+listens, so keep the default loopback listener unless the network is trusted.
+
+`Loader.Overrides()` and `Loader.TenantOverrides(code)` return deep copies of the
+active runtime overrides for inspection.
+
 ## Remote configuration
 
 ```yaml
