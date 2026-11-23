@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -148,7 +149,18 @@ func (h *Handler) page(writer http.ResponseWriter, request *http.Request) {
 }
 
 func (h *Handler) scope(writer http.ResponseWriter, request *http.Request) {
-	tenant := request.URL.Query().Get("tenant")
+	tenant := strings.TrimSpace(request.URL.Query().Get("tenant"))
+	// The scope endpoint returns an HTML fragment for htmx to swap. A direct
+	// navigation to it (new tab, copied URL, no JavaScript) must reach the full
+	// console instead of rendering a bare fragment.
+	if request.Header.Get("HX-Request") != "true" {
+		target := "/ui/"
+		if tenant != "" {
+			target += "?tenant=" + url.QueryEscape(tenant)
+		}
+		http.Redirect(writer, request, target, http.StatusSeeOther)
+		return
+	}
 	data, err := h.pageData(request.Context(), tenant, strings.TrimSpace(request.URL.Query().Get("q")))
 	if err != nil {
 		h.renderError(writer, request, err)

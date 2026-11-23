@@ -65,7 +65,9 @@ func TestPageAndScope(t *testing.T) {
 	}
 
 	scope := httptest.NewRecorder()
-	handler.ServeHTTP(scope, httptest.NewRequest(http.MethodGet, "/ui/scope?tenant=acme", nil))
+	scopeRequest := httptest.NewRequest(http.MethodGet, "/ui/scope?tenant=acme", nil)
+	scopeRequest.Header.Set("HX-Request", "true")
+	handler.ServeHTTP(scope, scopeRequest)
 	if scope.Code != http.StatusOK {
 		t.Fatalf("scope status = %d", scope.Code)
 	}
@@ -122,5 +124,38 @@ func TestBasicAuth(t *testing.T) {
 	handler.ServeHTTP(authorized, request)
 	if authorized.Code != http.StatusOK {
 		t.Fatalf("authorized status = %d", authorized.Code)
+	}
+}
+
+func TestScopeRedirectsDirectNavigation(t *testing.T) {
+	t.Parallel()
+	loader := newLoader(t)
+	handler := newHandler(t, loader)
+
+	for target, want := range map[string]string{
+		"/ui/scope":                    "/ui/",
+		"/ui/scope?tenant=acme":        "/ui/?tenant=acme",
+		"/ui/scope?tenant=acme&q=host": "/ui/?tenant=acme",
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+		if recorder.Code != http.StatusSeeOther {
+			t.Fatalf("%s status = %d, want 303", target, recorder.Code)
+		}
+		if location := recorder.Header().Get("Location"); location != want {
+			t.Fatalf("%s Location = %q, want %q", target, location, want)
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/ui/scope?tenant=acme", nil)
+	request.Header.Set("HX-Request", "true")
+	fragment := httptest.NewRecorder()
+	handler.ServeHTTP(fragment, request)
+	if fragment.Code != http.StatusOK {
+		t.Fatalf("htmx scope status = %d", fragment.Code)
+	}
+	body := fragment.Body.String()
+	if !strings.Contains(body, `id="scope-title"`) || strings.Contains(body, "<!doctype") {
+		t.Fatalf("htmx scope did not return a fragment")
 	}
 }
