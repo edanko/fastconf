@@ -1,0 +1,6 @@
+{{define "toast"}}
+<div id="toast" class="fc-toast fc-toast--{{.Kind}}" role="status" aria-live="polite" hx-swap-oob="true">
+  <span class="fc-toast-dot" aria-hidden="true"></span>
+  <span>{{.Message}}</span>
+</div>
+{{end}}

@@ -410,3 +410,27 @@ func TestDeleteOverridesBatch(t *testing.T) {
 		t.Fatalf("acme domain = %#v", domain)
 	}
 }
+
+func TestOverrideListingsPreserveCasing(t *testing.T) {
+	t.Parallel()
+	loader := newOverrideLoader(t, overrideDocument())
+	if err := loader.SetOverride("Features.NewFlag", true); err != nil {
+		t.Fatalf("SetOverride: %v", err)
+	}
+	if err := loader.SetTenantOverride("ACME", "Database.Host", "listed-db"); err != nil {
+		t.Fatalf("SetTenantOverride: %v", err)
+	}
+	if overrides := loader.Overrides(); overrides["Features.NewFlag"] != true {
+		t.Fatalf("global overrides = %#v", overrides)
+	}
+	if overrides := loader.TenantOverrides("acme"); overrides["Database.Host"] != "listed-db" {
+		t.Fatalf("tenant overrides = %#v", overrides)
+	}
+	// A case-variant update keeps the original path spelling.
+	if err := loader.SetOverride("features.newflag", false); err != nil {
+		t.Fatalf("SetOverride second: %v", err)
+	}
+	if overrides := loader.Overrides(); overrides["Features.NewFlag"] != false {
+		t.Fatalf("updated global overrides = %#v", overrides)
+	}
+}

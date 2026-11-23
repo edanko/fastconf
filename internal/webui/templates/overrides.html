@@ -1,0 +1,53 @@
+{{define "overrides"}}
+<header class="fc-panel-head fc-panel-head--tight">
+  <div>
+    <h2 id="overrides-title">Overrides</h2>
+    <p class="fc-panel-sub">{{if .Scope.IsTenant}}Scoped to this tenant.{{else}}Global defaults for every tenant.{{end}}</p>
+  </div>
+  <span class="fc-pill">{{len .Scope.Overrides}}</span>
+</header>
+{{if .Scope.Overrides}}
+<ul class="fc-override-list">
+  {{range .Scope.Overrides}}
+  <li class="fc-override">
+    <div class="fc-override-main">
+      <code class="fc-override-path">{{.Path}}</code>
+      <pre class="fc-override-value mono">{{.Value}}</pre>
+    </div>
+    <button class="fc-icon-btn" type="button"
+            hx-delete="/ui/overrides?tenant={{urlquery $.Scope.Tenant}}&path={{urlquery .Path}}"
+            hx-target="#workspace" hx-swap="innerHTML"
+            hx-confirm="Remove the override for {{.Path}}?"
+            aria-label="Remove override {{.Path}}">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="m6 6 1 14h10l1-14"></path><path d="M10 11v5M14 11v5"></path></svg>
+    </button>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<div class="fc-empty">
+  <p>No runtime overrides.</p>
+  <p class="fc-muted">Values set in the composer win over files and environment variables.</p>
+</div>
+{{end}}
+<form id="override-form" class="fc-new-override" data-override-form
+      hx-post="/ui/overrides" hx-target="#workspace" hx-swap="innerHTML">
+  <input type="hidden" name="tenant" value="{{.Scope.Tenant}}">
+  <div class="fc-new-override-head">
+    <h3>New override</h3>
+    <span class="fc-pill">{{if .Scope.IsTenant}}tenant{{else}}global{{end}}</span>
+  </div>
+  <label class="field fc-field">
+    <span>Path</span>
+    <input name="path" placeholder="database.host" required spellcheck="false" autocomplete="off">
+  </label>
+  <label class="field fc-field">
+    <span>JSON value</span>
+    <textarea name="value" rows="2" required spellcheck="false" placeholder='{ "enabled": true }'></textarea>
+  </label>
+  <div class="fc-new-override-actions">
+    <button class="btn btn--primary" type="submit">Apply override</button>
+    <span class="fc-hint" id="json-status">Validated before send.</span>
+  </div>
+</form>
+{{end}}

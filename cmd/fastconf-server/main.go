@@ -20,6 +20,7 @@ import (
 
 	"github.com/edanko/fastconf"
 	"github.com/edanko/fastconf/internal/configapi"
+	"github.com/edanko/fastconf/internal/webui"
 )
 
 func main() {
@@ -41,6 +42,7 @@ func run(arguments []string, getenv func(string) string) error {
 	environment := flags.String("environment", "", "environment name")
 	listen := flags.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	token := flags.String("token", getenv("FASTCONF_SERVER_TOKEN"), "optional bearer token required from clients")
+	ui := flags.Bool("ui", true, "serve the web console at /ui/")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -80,10 +82,25 @@ func run(arguments []string, getenv func(string) string) error {
 		return fmt.Errorf("load configuration: %w", err)
 	}
 
-	handler := configapi.New(loader,
+	configHandler := configapi.New(loader,
 		configapi.WithLogger(logger),
 		configapi.WithToken(*token),
 	)
+	handler := configHandler
+	if *ui {
+		console, err := webui.New(loader,
+			webui.WithLogger(logger),
+			webui.WithToken(*token),
+		)
+		if err != nil {
+			return fmt.Errorf("create web console: %w", err)
+		}
+		mux := http.NewServeMux()
+		mux.Handle("/ui/", console)
+		mux.Handle("/ui", http.RedirectHandler("/ui/", http.StatusFound))
+		mux.Handle("/", configHandler)
+		handler = mux
+	}
 	server := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,

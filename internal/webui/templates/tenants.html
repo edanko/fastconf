@@ -1,0 +1,17 @@
+{{define "tenants"}}
+<a class="fc-tenant fc-tenant--root{{if not .Scope.IsTenant}} is-active{{end}}"
+   href="/ui/" data-code=""
+   hx-get="/ui/scope" hx-target="#workspace" hx-swap="innerHTML" hx-push-url="/ui/">
+  <span class="fc-tenant-glyph" aria-hidden="true">/</span>
+  <span class="fc-tenant-code">root</span>
+</a>
+{{range .Codes}}
+<a class="fc-tenant{{if eq . $.Scope.Tenant}} is-active{{end}}"
+   href="/ui/?tenant={{urlquery .}}" data-code="{{.}}"
+   hx-get="/ui/scope?tenant={{urlquery .}}" hx-target="#workspace" hx-swap="innerHTML"
+   hx-push-url="/ui/?tenant={{urlquery .}}">
+  <span class="fc-tenant-glyph" aria-hidden="true"></span>
+  <span class="fc-tenant-code">{{.}}</span>
+</a>
+{{end}}
+{{end}}
