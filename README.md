@@ -317,7 +317,8 @@ carry a strict Content-Security-Policy. The console binds wherever the server
 listens, so keep the default loopback listener unless the network is trusted.
 
 `Loader.Overrides()` and `Loader.TenantOverrides(code)` return deep copies of the
-active runtime overrides for inspection.
+active runtime overrides for inspection. Opening a fragment URL such as
+`/ui/scope?tenant=acme` directly redirects to the full console.
 
 ## Remote configuration
 
